@@ -7,7 +7,6 @@ import android.util.Log
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
-import java.security.MessageDigest
 import java.util.UUID
 
 class GarminSyncManager(
@@ -124,7 +123,7 @@ class GarminSyncManager(
         val messages = mutableListOf<Map<String, Any>>()
         messages += mapOf(
             "t" to "b", "v" to 1, "x" to transferId, "r" to revision,
-            "n" to entries.size, "h" to snapshotHash(entries)
+            "n" to entries.size, "h" to SnapshotHasher.sha256(entries)
         )
         entries.forEachIndexed { index, entry ->
             messages += mapOf(
@@ -173,17 +172,6 @@ class GarminSyncManager(
             Log.e(TAG, "Exception while sending type=$type, transfer=${pendingTransferId ?: "none"}", error)
             finish(Result.failure(error))
         }
-    }
-
-    private fun snapshotHash(entries: List<TotpEntry>): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        entries.forEach { entry ->
-            listOf(entry.id, entry.displayName, entry.algorithm.wireValue.toString(), entry.digits.toString(), entry.periodSeconds.toString())
-                .forEach { digest.update(it.toByteArray(Charsets.UTF_8)); digest.update(0) }
-            digest.update(entry.secret)
-            digest.update(0)
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     @Synchronized

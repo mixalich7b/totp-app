@@ -26,6 +26,28 @@ adb devices
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Интеграционные тесты SQLite и Android Keystore на подключённом устройстве или
+запущенном эмуляторе (тесты очищают только данные debug-приложения):
+
+```bash
+./gradlew connectedDebugAndroidTest
+```
+
+Тесты удаляют локальную БД и Keystore key пакета `net.mixalich7b.totp`, поэтому
+их следует запускать на чистом эмуляторе или тестовом устройстве без реальных
+секретов. При `INSTALL_FAILED_UPDATE_INCOMPATIBLE` используйте чистый эмулятор:
+установленное приложение подписано другим ключом и не должно удаляться ради теста.
+
+Если Gradle ожидает устройство после сборки test APK, тот же набор можно запустить
+через ADB напрямую:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w \
+  net.mixalich7b.totp.test/androidx.test.runner.AndroidJUnitRunner
+```
+
 Debug APK предназначен для тестов: он `debuggable=true`. Для реальных секретов используйте подписанный release APK.
 
 Один раз создать release keystore вне репозитория:

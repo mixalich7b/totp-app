@@ -1,6 +1,6 @@
 # План реализации «TOTP mixalich7b»
 
-Дата актуализации: 21 июня 2026 года.
+Дата актуализации: 22 июня 2026 года.
 
 ## 1. Цель и границы проекта
 
@@ -147,11 +147,18 @@ Android отправляет полный snapshot текущей revision по 
 - выбор favorite и glance избранной записи;
 - RFC 6238 тесты SHA-1/SHA-256 и запуск в Connect IQ Simulator.
 
-До аппаратных проверок проект остаётся developer preview, а не стабильной версией.
+Основной этап аппаратных проверок завершён 21 июня 2026 года. Подтверждена рабочая
+связка Android 16 (Xiaomi 17) и fēnix 8 Pro с firmware 22.35, включая полный
+обмен snapshot/ACK. Проект остаётся developer preview до завершения усиленных
+автоматических тестов и пользовательских сценариев из разделов 8.2–8.4.
 
 ## 8. Следующие этапы
 
 ### 8.1. Проверка на реальных устройствах
+
+Статус: завершено 21 июня 2026 года по результатам проверки владельцем проекта.
+Перечисленные сценарии остаются обязательным regression-набором после изменений
+lifecycle, синхронизации, storage или Garmin UI.
 
 Проверить на fēnix 8 Pro и минимум двух Android-устройствах:
 
@@ -169,10 +176,28 @@ Android отправляет полный snapshot текущей revision по 
 
 ### 8.2. Усиление автоматических тестов
 
-- Base32, URI и protobuf: Unicode, специальные символы, отсутствующий issuer, неверный padding, malformed payload и out-of-order batches;
-- TOTP: границы периода, ведущие нули и даты после 2038 года;
-- Android storage: уникальность IV, AAD, повреждённый ciphertext/GCM tag и потеря Keystore key;
-- protocol: checksum, count, sequence, revision, потеря, перестановка и повтор chunks;
+Статус: в работе.
+
+Выполнено:
+
+- расширены Android unit-тесты Base32, `otpauth://`, protobuf migration payload,
+  Unicode, malformed input, неизвестных protobuf-полей и batch metadata;
+- протестирована сборка многочастной миграции не по порядку и безопасная очистка
+  заменённых/отменённых batch-частей;
+- добавлены TOTP-тесты границы периода, ведущих нулей и времени после 2038 года.
+- AES-GCM envelope покрыт тестами уникальности IV, AAD, round-trip и повреждения
+  ciphertext/GCM tag;
+- добавлены Android instrumentation-тесты реальных SQLite/Android Keystore:
+  отсутствие plaintext в колонках, уникальность IV, потеря ключа и повреждение tag;
+  все 3 теста прошли на эмуляторе Android 16/API 36 (`sdk_gphone64_arm64`);
+- канонический snapshot hash проверяется одинаковым вектором на Android и Garmin;
+  Garmin test PRG покрывает count, sequence, transfer ID, checksum, stale revision,
+  атомарный commit и его идемпотентный повтор.
+
+Остаётся:
+
+- protocol: потеря, перестановка и повтор chunks на уровне транспорта;
+- запуск расширенного Garmin test PRG в Device Simulator;
 - миграции SQLite и Garmin storage;
 - Android UI, Google Code Scanner integration и дополнительные Garmin Simulator/memory tests;
 - property/fuzz tests для внешних форматов и канонической сериализации.

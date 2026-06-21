@@ -1,4 +1,5 @@
 import Toybox.Lang;
+import Toybox.Application;
 import Toybox.Test;
 
 (:test)
@@ -49,4 +50,98 @@ function testSyncMessageTypeRepresentations(logger as Test.Logger) as Boolean {
     return syncMessageType("b").equals("b")
         && syncMessageType('c').equals("c")
         && syncMessageType(:m).equals("m");
+}
+
+(:test)
+function testProtocolCommitAndIdempotence(logger as Test.Logger) as Boolean {
+    var keys = ["active", "revision", "favorite", "staging", "staging_id", "staging_count",
+        "staging_revision", "staging_hash", "last_transfer"];
+    for (var keyIndex = 0; keyIndex < keys.size(); keyIndex++) {
+        Application.Storage.deleteValue(keys[keyIndex]);
+    }
+    var entry = {
+        "i" => "protocol-entry",
+        "n" => "Test",
+        "s" => [1, 2, 3, 4],
+        "a" => 1,
+        "d" => 6,
+        "p" => 30
+    };
+    var store = new TotpStore();
+    var hash = (new TotpCore()).snapshotHash([entry]);
+    var beginResult = store.begin({"v" => 1, "x" => "tx-valid", "r" => 7, "n" => 1, "h" => hash});
+    var chunkResult = store.chunk({"x" => "tx-valid", "q" => 0, "e" => entry});
+    var commitResult = store.commit({"x" => "tx-valid"});
+    var repeatedResult = store.commit({"x" => "tx-valid"});
+    var active = Application.Storage.getValue("active");
+    var passed = true;
+    if (beginResult != null) { passed = false; }
+    if (chunkResult != null) { passed = false; }
+    if (commitResult != 7) { passed = false; }
+    if (repeatedResult != 7) { passed = false; }
+    if (active == null) {
+        passed = false;
+    } else if ((active as Lang.Array).size() != 1) {
+        passed = false;
+    }
+    for (var cleanupIndex = 0; cleanupIndex < keys.size(); cleanupIndex++) {
+        Application.Storage.deleteValue(keys[cleanupIndex]);
+    }
+    return passed;
+}
+
+(:test)
+function testProtocolRejectsSequenceTransferAndCount(logger as Test.Logger) as Boolean {
+    var keys = ["active", "revision", "favorite", "staging", "staging_id", "staging_count",
+        "staging_revision", "staging_hash", "last_transfer"];
+    for (var keyIndex = 0; keyIndex < keys.size(); keyIndex++) {
+        Application.Storage.deleteValue(keys[keyIndex]);
+    }
+    var entry = {"i" => "entry", "n" => "Test", "s" => [1], "a" => 1, "d" => 6, "p" => 30};
+    var store = new TotpStore();
+    var hash = (new TotpCore()).snapshotHash([entry]);
+    store.begin({"v" => 1, "x" => "tx-count", "r" => 1, "n" => 2, "h" => hash});
+    var wrongSequence = store.chunk({"x" => "tx-count", "q" => 1, "e" => entry});
+    var wrongTransfer = store.chunk({"x" => "other", "q" => 0, "e" => entry});
+    var validChunk = store.chunk({"x" => "tx-count", "q" => 0, "e" => entry});
+    var incomplete = store.commit({"x" => "tx-count"});
+    var passed = true;
+    if (!wrongSequence.equals("Wrong sequence")) { passed = false; }
+    if (!wrongTransfer.equals("Wrong transfer")) { passed = false; }
+    if (validChunk != null) { passed = false; }
+    if (!incomplete.equals("Incomplete snapshot")) { passed = false; }
+    if (Application.Storage.getValue("active") != null) { passed = false; }
+    for (var cleanupIndex = 0; cleanupIndex < keys.size(); cleanupIndex++) {
+        Application.Storage.deleteValue(keys[cleanupIndex]);
+    }
+    return passed;
+}
+
+(:test)
+function testProtocolRejectsChecksumStaleRevisionAndInvalidEntry(logger as Test.Logger) as Boolean {
+    var keys = ["active", "revision", "favorite", "staging", "staging_id", "staging_count",
+        "staging_revision", "staging_hash", "last_transfer"];
+    for (var keyIndex = 0; keyIndex < keys.size(); keyIndex++) {
+        Application.Storage.deleteValue(keys[keyIndex]);
+    }
+    var entry = {"i" => "entry", "n" => "Test", "s" => [1], "a" => 1, "d" => 6, "p" => 30};
+    var invalidEntry = {"i" => "bad", "n" => "Bad", "s" => [], "a" => 1, "d" => 6, "p" => 30};
+    var store = new TotpStore();
+    store.begin({"v" => 1, "x" => "tx-hash", "r" => 5, "n" => 1, "h" => "bad"});
+    var invalidRecord = store.chunk({"x" => "tx-hash", "q" => 0, "e" => invalidEntry});
+    var validChunk = store.chunk({"x" => "tx-hash", "q" => 0, "e" => entry});
+    var checksum = store.commit({"x" => "tx-hash"});
+    Application.Storage.setValue("revision", 5);
+    var stale = store.begin({"v" => 1, "x" => "tx-stale", "r" => 4, "n" => 0,
+        "h" => (new TotpCore()).snapshotHash([])});
+    var passed = true;
+    if (!invalidRecord.equals("Invalid record")) { passed = false; }
+    if (validChunk != null) { passed = false; }
+    if (!checksum.equals("Checksum mismatch")) { passed = false; }
+    if (!stale.equals("Stale revision")) { passed = false; }
+    if (Application.Storage.getValue("active") != null) { passed = false; }
+    for (var cleanupIndex = 0; cleanupIndex < keys.size(); cleanupIndex++) {
+        Application.Storage.deleteValue(keys[cleanupIndex]);
+    }
+    return passed;
 }

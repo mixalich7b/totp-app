@@ -19,52 +19,57 @@ object MigrationParser {
             "Ожидался Google Authenticator migration QR"
         }
         val encoded = queryParameter(uri.rawQuery.orEmpty(), "data")
-            ?: error("В migration URI отсутствует data")
+            ?: throw IllegalArgumentException("В migration URI отсутствует data")
         val payload = decodeBase64(encoded)
         try {
             val root = ProtoReader(payload)
             val entries = mutableListOf<TotpEntry>()
-            var version = 0L
-            var batchSize = 1
-            var batchIndex = 0
-            var batchId = 0L
-            while (root.hasRemaining()) {
-                val tag = root.readTag()
-                when (tag.fieldNumber) {
-                    1 -> {
-                        tag.requireWireType(2)
-                        val entryBytes = root.readBytes()
-                        try {
-                            entries += parseEntry(entryBytes)
-                        } finally {
-                            entryBytes.fill(0)
+            try {
+                var version = 0L
+                var batchSize = 1
+                var batchIndex = 0
+                var batchId = 0L
+                while (root.hasRemaining()) {
+                    val tag = root.readTag()
+                    when (tag.fieldNumber) {
+                        1 -> {
+                            tag.requireWireType(2)
+                            val entryBytes = root.readBytes()
+                            try {
+                                entries += parseEntry(entryBytes)
+                            } finally {
+                                entryBytes.fill(0)
+                            }
                         }
+                        2 -> {
+                            tag.requireWireType(0)
+                            version = root.readVarint()
+                        }
+                        3 -> {
+                            tag.requireWireType(0)
+                            batchSize = root.readVarint().toInt()
+                        }
+                        4 -> {
+                            tag.requireWireType(0)
+                            batchIndex = root.readVarint().toInt()
+                        }
+                        5 -> {
+                            tag.requireWireType(0)
+                            batchId = root.readVarint()
+                        }
+                        else -> root.skip(tag.wireType)
                     }
-                    2 -> {
-                        tag.requireWireType(0)
-                        version = root.readVarint()
-                    }
-                    3 -> {
-                        tag.requireWireType(0)
-                        batchSize = root.readVarint().toInt()
-                    }
-                    4 -> {
-                        tag.requireWireType(0)
-                        batchIndex = root.readVarint().toInt()
-                    }
-                    5 -> {
-                        tag.requireWireType(0)
-                        batchId = root.readVarint()
-                    }
-                    else -> root.skip(tag.wireType)
                 }
+                require(version in 0..2) { "Неподдерживаемая версия migration payload: $version" }
+                require(entries.isNotEmpty()) { "В QR нет поддерживаемых TOTP записей" }
+                require(batchSize in 1..100 && batchIndex in 0 until batchSize) {
+                    "Некорректный migration batch"
+                }
+                return MigrationBatch(entries, batchSize, batchIndex, batchId)
+            } catch (error: Exception) {
+                entries.forEach { it.secret.fill(0) }
+                throw error
             }
-            require(version in 0..2) { "Неподдерживаемая версия migration payload: $version" }
-            require(entries.isNotEmpty()) { "В QR нет поддерживаемых TOTP записей" }
-            require(batchSize in 1..100 && batchIndex in 0 until batchSize) {
-                "Некорректный migration batch"
-            }
-            return MigrationBatch(entries, batchSize, batchIndex, batchId)
         } finally {
             payload.fill(0)
         }
@@ -78,49 +83,58 @@ object MigrationParser {
         var algorithm = 1
         var digits = 1
         var type = 0
-        while (reader.hasRemaining()) {
-            val tag = reader.readTag()
-            when (tag.fieldNumber) {
-                1 -> {
-                    tag.requireWireType(2)
-                    secret.fill(0)
-                    secret = reader.readBytes()
+        try {
+            while (reader.hasRemaining()) {
+                val tag = reader.readTag()
+                when (tag.fieldNumber) {
+                    1 -> {
+                        tag.requireWireType(2)
+                        secret.fill(0)
+                        secret = reader.readBytes()
+                    }
+                    2 -> {
+                        tag.requireWireType(2)
+                        name = reader.readString()
+                    }
+                    3 -> {
+                        tag.requireWireType(2)
+                        issuer = reader.readString()
+                    }
+                    4 -> {
+                        tag.requireWireType(0)
+                        algorithm = reader.readVarint().toInt()
+                    }
+                    5 -> {
+                        tag.requireWireType(0)
+                        digits = reader.readVarint().toInt()
+                    }
+                    6 -> {
+                        tag.requireWireType(0)
+                        type = reader.readVarint().toInt()
+                    }
+                    else -> reader.skip(tag.wireType)
                 }
-                2 -> {
-                    tag.requireWireType(2)
-                    name = reader.readString()
-                }
-                3 -> {
-                    tag.requireWireType(2)
-                    issuer = reader.readString()
-                }
-                4 -> {
-                    tag.requireWireType(0)
-                    algorithm = reader.readVarint().toInt()
-                }
-                5 -> {
-                    tag.requireWireType(0)
-                    digits = reader.readVarint().toInt()
-                }
-                6 -> {
-                    tag.requireWireType(0)
-                    type = reader.readVarint().toInt()
-                }
-                else -> reader.skip(tag.wireType)
             }
+            require(type == 0 || type == 2) { "HOTP не поддерживается" }
+            val account = name.substringAfter(':', name).trim()
+            val effectiveIssuer = issuer.ifBlank { name.substringBefore(':', "").trim() }
+            return TotpEntry(
+                displayName = listOf(effectiveIssuer, account).filter { it.isNotBlank() }.joinToString(": ")
+                    .ifBlank { "TOTP" },
+                issuer = effectiveIssuer,
+                accountName = account,
+                secret = secret,
+                algorithm = TotpAlgorithm.fromWire(if (algorithm == 0) 1 else algorithm),
+                digits = when (digits) {
+                    0, 1 -> 6
+                    2 -> 8
+                    else -> throw IllegalArgumentException("Неподдерживаемое число цифр")
+                },
+            )
+        } catch (error: Exception) {
+            secret.fill(0)
+            throw error
         }
-        require(type == 0 || type == 2) { "HOTP не поддерживается" }
-        val account = name.substringAfter(':', name).trim()
-        val effectiveIssuer = issuer.ifBlank { name.substringBefore(':', "").trim() }
-        return TotpEntry(
-            displayName = listOf(effectiveIssuer, account).filter { it.isNotBlank() }.joinToString(": ")
-                .ifBlank { "TOTP" },
-            issuer = effectiveIssuer,
-            accountName = account,
-            secret = secret,
-            algorithm = TotpAlgorithm.fromWire(if (algorithm == 0) 1 else algorithm),
-            digits = when (digits) { 0, 1 -> 6; 2 -> 8; else -> error("Неподдерживаемое число цифр") },
-        )
     }
 
     private fun queryParameter(query: String, expectedName: String): String? = query.split('&')
@@ -177,7 +191,7 @@ object MigrationParser {
                 if (byte and 0x80 == 0) return result
                 shift += 7
             }
-            error("Слишком длинный protobuf varint")
+            throw IllegalArgumentException("Слишком длинный protobuf varint")
         }
 
         fun readBytes(): ByteArray {
@@ -200,7 +214,7 @@ object MigrationParser {
                     skipBytes(length.toInt())
                 }
                 5 -> skipBytes(4)
-                else -> error("Неподдерживаемый protobuf wire type")
+                else -> throw IllegalArgumentException("Неподдерживаемый protobuf wire type")
             }
         }
 

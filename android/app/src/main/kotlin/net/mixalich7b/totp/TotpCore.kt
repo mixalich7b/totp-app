@@ -57,9 +57,26 @@ object Base32 {
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
     fun decode(input: String): ByteArray {
-        val normalized = input.uppercase(Locale.ROOT).filterNot { it.isWhitespace() || it == '-' }
-            .trimEnd('=')
+        val compact = input.uppercase(Locale.ROOT).filterNot { it.isWhitespace() || it == '-' }
+        require(compact.isNotEmpty()) { "Секрет пуст" }
+        val paddingStart = compact.indexOf('=')
+        val normalized = if (paddingStart >= 0) compact.substring(0, paddingStart) else compact
         require(normalized.isNotEmpty()) { "Секрет пуст" }
+        val remainder = normalized.length % 8
+        val expectedPadding = when (remainder) {
+            0 -> 0
+            2 -> 6
+            4 -> 4
+            5 -> 3
+            7 -> 1
+            else -> throw IllegalArgumentException("Некорректная длина Base32")
+        }
+        if (paddingStart >= 0) {
+            val padding = compact.substring(paddingStart)
+            require(padding.all { it == '=' } && compact.length % 8 == 0 && padding.length == expectedPadding) {
+                "Некорректный padding Base32"
+            }
+        }
         var buffer = 0
         var bits = 0
         val out = ArrayList<Byte>((normalized.length * 5) / 8)
@@ -104,13 +121,21 @@ object OtpAuthParser {
         }
         val label = decode(uri.rawPath.orEmpty().removePrefix("/"))
         val query = parseQuery(uri.rawQuery.orEmpty())
-        val secret = Base32.decode(query["secret"] ?: error("В URI отсутствует secret"))
         val issuerFromLabel = label.substringBefore(':', "").trim()
         val account = label.substringAfter(':', label).trim()
-        val issuer = query["issuer"].orEmpty().ifBlank { issuerFromLabel }
+        val issuerFromQuery = query["issuer"].orEmpty().trim()
+        require(issuerFromLabel.isBlank() || issuerFromQuery.isBlank() || issuerFromLabel == issuerFromQuery) {
+            "Issuer в label и query не совпадает"
+        }
+        val issuer = issuerFromQuery.ifBlank { issuerFromLabel }
         val algorithm = TotpAlgorithm.fromName(query["algorithm"] ?: "SHA1")
-        val digits = (query["digits"] ?: "6").toIntOrNull() ?: error("Некорректное digits")
-        val period = (query["period"] ?: "30").toIntOrNull() ?: error("Некорректный period")
+        val digits = (query["digits"] ?: "6").toIntOrNull()
+            ?: throw IllegalArgumentException("Некорректное digits")
+        val period = (query["period"] ?: "30").toIntOrNull()
+            ?: throw IllegalArgumentException("Некорректный period")
+        require(digits == 6 || digits == 8) { "Допустимо 6 или 8 цифр" }
+        require(period in 5..300) { "Период должен быть от 5 до 300 секунд" }
+        val secret = Base32.decode(requireNotNull(query["secret"]) { "В URI отсутствует secret" })
         val displayName = listOf(issuer, account).filter { it.isNotBlank() }.joinToString(": ")
             .ifBlank { label.ifBlank { "TOTP" } }
         return TotpEntry(
@@ -131,6 +156,9 @@ object OtpAuthParser {
             decode(pieces[0]).lowercase(Locale.ROOT) to decode(pieces.getOrElse(1) { "" })
         }
 
-    private fun decode(value: String): String = URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+    // URI percent-decoding is performed once. A literal '+' is not a form-encoded space.
+    private fun decode(value: String): String = URLDecoder.decode(
+        value.replace("+", "%2B"),
+        StandardCharsets.UTF_8.name(),
+    )
 }
-

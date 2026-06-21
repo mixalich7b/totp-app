@@ -94,8 +94,13 @@ Android:
 cd android
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 ./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew assembleDebugAndroidTest
 ./gradlew lintRelease assembleRelease
 ```
+
+`connectedDebugAndroidTest` очищает БД и Keystore key debug package. Запускать его
+только на чистом эмуляторе/тестовом устройстве без реальных секретов; при конфликте
+подписи не удалять пользовательское приложение автоматически.
 
 Garmin — использовать `CONNECTIQ_HOME` и developer key вне репозитория:
 
@@ -110,7 +115,7 @@ cd garmin
 
 У Garmin compiler допустимы текущие warnings о динамическом типе контейнеров wire protocol, но новые errors/crashes недопустимы. `monkeydo` может вернуть non-zero при итоговом `PASSED`; проверять текстовый итог tests.
 
-После изменения lifecycle выполнить обычный Simulator smoke-test. После изменения sync, glance, storage или UI обязательна ручная проверка на реальных fēnix 8 Pro. Ещё не подтверждены на железе: доставка при закрытом watch app, glance lifecycle/frequency, mailbox limits, heap/battery, touch/buttons и большие snapshots. До этих проверок проект имеет статус developer preview.
+После изменения lifecycle выполнить обычный Simulator smoke-test. После изменения sync, glance, storage или UI обязательна ручная проверка на реальных fēnix 8 Pro. Основной аппаратный этап 8.1 подтверждён владельцем проекта 21 июня 2026 года на Android 16/Xiaomi 17 и fēnix 8 Pro firmware 22.35; это исходная regression-конфигурация. Проект остаётся developer preview до завершения этапов 8.2–8.4.
 
 ## Документация
 

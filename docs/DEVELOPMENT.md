@@ -28,4 +28,8 @@ adb logcat -s TotpGarminSync
 
 ## Статус
 
-Обе части собираются, Android unit-тесты и Garmin RFC-тесты проходят в симуляторах. На реальной fēnix 8 Pro с firmware 22.35 подтверждён запуск background delegate при доставке сообщений из Android. После нормализации входящих типов и сравнений строк протокола требуется повторно проверить полный commit/ACK. Также остаются проверки glance lifecycle, памяти, батареи, жестов и больших наборов записей.
+Обе части собираются, Android unit-тесты и Garmin RFC-тесты проходят в симуляторах. Владелец проекта завершил основной этап аппаратной проверки 21 июня 2026 года на связке Xiaomi 17 с Android 16 и fēnix 8 Pro с firmware 22.35. Подтверждены background delegate и полный цикл snapshot/ACK. Эти сценарии нужно повторять после изменений lifecycle, синхронизации, storage или Garmin UI.
+
+Следующий активный этап — усиление автоматических тестов. Уже покрыты дополнительные граничные случаи Base32, `otpauth://`, Google Authenticator protobuf/multi-batch и TOTP после 2038 года; актуальный остаток работ перечислен в [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md#82-усиление-автоматических-тестов).
+
+Android storage instrumentation-набор из трёх тестов успешно выполнен 22 июня 2026 года на эмуляторе Android 16/API 36 (`sdk_gphone64_arm64`). Проверены реальный Android Keystore и SQLite, уникальность IV, отсутствие plaintext в колонках, потеря Keystore key и повреждение GCM tag.

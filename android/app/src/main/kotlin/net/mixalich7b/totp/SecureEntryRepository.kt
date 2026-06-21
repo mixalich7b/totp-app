@@ -139,25 +139,35 @@ private class EntryDatabase(context: Context) : SQLiteOpenHelper(context, "totp_
     }
 }
 
-private data class Envelope(val iv: ByteArray, val ciphertext: ByteArray)
+internal data class Envelope(val iv: ByteArray, val ciphertext: ByteArray)
 
-private class EntryCrypto(private val database: SQLiteDatabase) {
-    private val key: SecretKey by lazy { loadOrCreateKey() }
-
-    fun encrypt(id: String, revision: Long, schema: Int, plaintext: ByteArray): Envelope {
+internal class AesGcmEnvelopeCrypto(private val key: SecretKey) {
+    fun encrypt(aad: ByteArray, plaintext: ByteArray): Envelope {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key)
         val iv = cipher.iv.copyOf()
-        require(iv.size == 12) { "Android Keystore вернул некорректный GCM IV" }
-        cipher.updateAAD(aad(id, revision, schema))
+        require(iv.size == 12) { "Криптопровайдер вернул некорректный GCM IV" }
+        cipher.updateAAD(aad)
         return Envelope(iv, cipher.doFinal(plaintext))
     }
 
-    fun decrypt(id: String, revision: Long, schema: Int, iv: ByteArray, ciphertext: ByteArray): ByteArray = try {
+    fun decrypt(aad: ByteArray, iv: ByteArray, ciphertext: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
-        cipher.updateAAD(aad(id, revision, schema))
-        cipher.doFinal(ciphertext)
+        cipher.updateAAD(aad)
+        return cipher.doFinal(ciphertext)
+    }
+}
+
+private class EntryCrypto(private val database: SQLiteDatabase) {
+    private val key: SecretKey by lazy { loadOrCreateKey() }
+    private val envelopeCrypto: AesGcmEnvelopeCrypto by lazy { AesGcmEnvelopeCrypto(key) }
+
+    fun encrypt(id: String, revision: Long, schema: Int, plaintext: ByteArray): Envelope =
+        envelopeCrypto.encrypt(aad(id, revision, schema), plaintext)
+
+    fun decrypt(id: String, revision: Long, schema: Int, iv: ByteArray, ciphertext: ByteArray): ByteArray = try {
+        envelopeCrypto.decrypt(aad(id, revision, schema), iv, ciphertext)
     } catch (error: Exception) {
         throw StorageUnavailableException("Не удалось расшифровать локальное хранилище", error)
     }

@@ -28,7 +28,7 @@ class MainActivity : Activity() {
     private lateinit var adapter: EntryAdapter
     private lateinit var statusView: TextView
     private var entries = mutableListOf<TotpEntry>()
-    private val migrationParts = mutableMapOf<Int, MigrationBatch>()
+    private val migrationCollector = MigrationBatchCollector()
     private val edgePaddingPx by lazy { dimenPx(R.dimen.totp_screen_edge_padding) }
     private val contentGapPx by lazy { dimenPx(R.dimen.totp_content_gap) }
     private val buttonGapPx by lazy { dimenPx(R.dimen.totp_button_gap) }
@@ -201,18 +201,13 @@ class MainActivity : Activity() {
                 previewImport(listOf(OtpAuthParser.parse(raw)), R.string.dialog_import_totp)
             } else if (raw.startsWith("otpauth-migration://", true)) {
                 val batch = MigrationParser.parse(raw)
-                if (batch.batchSize == 1) {
-                    previewImport(batch.entries, R.string.dialog_import_google_authenticator)
-                } else {
-                    val existingId = migrationParts.values.firstOrNull()?.batchId
-                    if (existingId != null && existingId != batch.batchId) migrationParts.clear()
-                    migrationParts[batch.batchIndex] = batch
-                    if (migrationParts.size == batch.batchSize) {
-                        val imported = (0 until batch.batchSize).flatMap { migrationParts.getValue(it).entries }
-                        migrationParts.clear()
-                        previewImport(imported, R.string.dialog_import_google_authenticator)
-                    } else {
-                        statusView.text = getString(R.string.batch_status, migrationParts.size, batch.batchSize)
+                when (val result = migrationCollector.add(batch)) {
+                    is MigrationBatchResult.Complete -> previewImport(
+                        result.entries,
+                        R.string.dialog_import_google_authenticator,
+                    )
+                    is MigrationBatchResult.Pending -> {
+                        statusView.text = getString(R.string.batch_status, result.received, result.total)
                     }
                 }
             } else {
@@ -282,7 +277,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         entries.forEach { it.secret.fill(0) }
-        migrationParts.values.flatMap { it.entries }.forEach { it.secret.fill(0) }
+        migrationCollector.clear()
         syncManager.close()
         repository.close()
         super.onDestroy()

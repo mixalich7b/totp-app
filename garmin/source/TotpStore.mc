@@ -51,6 +51,16 @@ class TotpStore {
         if (message["v"] != 1) {
             return "Unsupported protocol";
         }
+        var revision = message["r"];
+        var count = message["n"];
+        if (message["x"] == null || message["h"] == null
+                || !(revision instanceof Number || revision instanceof Long)
+                || !(count instanceof Number || count instanceof Long)) {
+            return "Invalid begin";
+        }
+        if (revision < 0 || count < 0) {
+            return "Invalid begin";
+        }
         var current = Application.Storage.getValue(REVISION);
         if (current != null && message["r"] < current) {
             return "Stale revision";
@@ -73,10 +83,16 @@ class TotpStore {
             return "Wrong sequence";
         }
         var entry = message["e"];
-        if (entry == null || entry["i"] == null || entry["n"] == null || entry["s"] == null) {
+        if (entry == null || entry["i"] == null || entry["n"] == null || entry["s"] == null
+                || !(entry["s"] instanceof Lang.Array) || entry["s"].size() == 0) {
             return "Invalid record";
         }
-        if ((entry["a"] != 1 && entry["a"] != 2) || (entry["d"] != 6 && entry["d"] != 8)) {
+        var period = entry["p"];
+        if (!(period instanceof Number || period instanceof Long)) {
+            return "Unsupported TOTP";
+        }
+        if ((entry["a"] != 1 && entry["a"] != 2) || (entry["d"] != 6 && entry["d"] != 8)
+                || period < 5 || period > 300) {
             return "Unsupported TOTP";
         }
         staging.add(entry);
