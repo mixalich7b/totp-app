@@ -16,8 +16,10 @@ import android.widget.ListView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -45,6 +47,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        applyWindowSurfaceColors()
         title = getString(R.string.app_name)
         repository = SecureEntryRepository(this)
         setContentView(buildContent())
@@ -55,6 +59,7 @@ class MainActivity : Activity() {
     private fun buildContent(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.app_surface))
             setPadding(edgePaddingPx, edgePaddingPx, edgePaddingPx, bottomPaddingPx)
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
@@ -109,6 +114,13 @@ class MainActivity : Activity() {
         })
         ViewCompat.requestApplyInsets(root)
         return root
+    }
+
+    private fun applyWindowSurfaceColors() {
+        val surfaceColor = ContextCompat.getColor(this, R.color.app_surface)
+        window.statusBarColor = surfaceColor
+        window.navigationBarColor = surfaceColor
+        window.decorView.setBackgroundColor(surfaceColor)
     }
 
     private fun reload() {
