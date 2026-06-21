@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iq:manifest xmlns:iq="http://www.garmin.com/xml/connectiq" version="1">
+    <iq:application
+        id="fa0bbecf1e62477bb9cf740aca2a4b32"
+        type="watch-app"
+        name="@Strings.AppName"
+        entry="TotpMixalich7bApp"
+        launcherIcon="@Drawables.LauncherIcon"
+        minSdkVersion="6.0.0">
+        <iq:products>
+            <iq:product id="fenix8pro47mm"/>
+        </iq:products>
+        <iq:permissions>
+            <iq:uses-permission id="Background"/>
+            <iq:uses-permission id="Communications"/>
+        </iq:permissions>
+        <iq:languages>
+            <iq:language>eng</iq:language>
+            <iq:language>rus</iq:language>
+        </iq:languages>
+    </iq:application>
+</iq:manifest>

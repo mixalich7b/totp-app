@@ -1,0 +1,24 @@
+.DS_Store
+.idea/
+*.iml
+
+# Android
+android/.gradle/
+android/local.properties
+android/**/build/
+android/*.jks
+android/*.keystore
+
+# Garmin
+garmin/bin/
+garmin/*.der
+garmin/*.key
+garmin/*.prg
+garmin/*.iq
+
+# Sensitive local artifacts
+*.db
+*.sqlite*
+*.log
+screenshots/
+

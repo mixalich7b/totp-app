@@ -1,0 +1,6 @@
+<resources>
+    <string id="AppName">TOTP mixalich7b</string>
+    <string id="Empty">Run sync on Android</string>
+    <string id="FavoriteHint">START: favorite</string>
+</resources>
+

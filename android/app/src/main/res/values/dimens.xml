@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="totp_screen_edge_padding">16dp</dimen>
+    <dimen name="totp_screen_bottom_padding">20dp</dimen>
+    <dimen name="totp_content_gap">12dp</dimen>
+    <dimen name="totp_button_gap">8dp</dimen>
+    <dimen name="totp_dialog_horizontal_padding">20dp</dimen>
+    <dimen name="totp_dialog_vertical_padding">16dp</dimen>
+    <dimen name="totp_dialog_field_gap">10dp</dimen>
+    <dimen name="totp_title_text_size">12sp</dimen>
+    <dimen name="totp_status_text_size">6sp</dimen>
+    <dimen name="totp_row_text_size">8sp</dimen>
+    <dimen name="totp_row_padding_horizontal">12dp</dimen>
+    <dimen name="totp_row_padding_vertical">14dp</dimen>
+</resources>

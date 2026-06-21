@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TOTP mixalich7b</string>
+    <string name="qr">QR</string>
+    <string name="default_period">30</string>
+    <string name="status_initializing">Инициализация…</string>
+    <string name="empty_secrets">Секретов пока нет</string>
+    <string name="action_add">Добавить</string>
+    <string name="action_sync">Синхр.</string>
+    <string name="action_cancel">Отмена</string>
+    <string name="action_save">Сохранить</string>
+    <string name="action_import">Импортировать</string>
+    <string name="action_delete">Удалить</string>
+    <string name="local_status">Локальная revision %1$d; записей: %2$d</string>
+    <string name="batch_status">Считано %1$d из %2$d QR; сканируйте следующий</string>
+    <string name="error_status">Ошибка: %1$s</string>
+    <string name="error_qr_empty">QR не содержит текста</string>
+    <string name="status_scan_canceled">Сканирование отменено</string>
+    <string name="error_not_totp_qr">Это не TOTP QR</string>
+    <string name="dialog_new_totp">Новый TOTP</string>
+    <string name="dialog_import_totp">Импортировать TOTP?</string>
+    <string name="dialog_import_google_authenticator">Импорт Google Authenticator</string>
+    <string name="dialog_delete_record">Удалить запись?</string>
+    <string name="sync_sdk_ready">Garmin Connect готов</string>
+    <string name="sync_sdk_unavailable">Garmin SDK недоступен: %1$s</string>
+    <string name="sync_sdk_shutdown">Garmin SDK остановлен</string>
+    <string name="sync_sdk_not_ready">Garmin Connect ещё не готов</string>
+    <string name="sync_no_device">Нет подключённых часов Garmin</string>
+    <string name="sync_already_running">Синхронизация уже выполняется</string>
+    <string name="sync_transfering_entries">Передача %1$d записей…</string>
+    <string name="sync_waiting_for_ack">Передано; ожидается подтверждение часов (до 30 с)</string>
+    <string name="sync_transfer_failed">Передача Garmin: %1$s</string>
+    <string name="sync_receive_failed">Ответ Garmin: %1$s</string>
+    <string name="sync_timeout">Часы не подтвердили синхронизацию за 30 секунд</string>
+    <string name="field_name">Название</string>
+    <string name="field_issuer_optional">Issuer (необязательно)</string>
+    <string name="field_account_optional">Аккаунт (необязательно)</string>
+    <string name="field_base32_secret">Base32 secret</string>
+    <string name="field_period_seconds">Период, секунд</string>
+    <string name="entry_line_single">%1$s</string>
+    <string name="entry_line_with_subtitle">%1$s&#10;%2$s</string>
+    <string name="import_item_bullet">• %1$s</string>
+    <string-array name="totp_algorithms">
+        <item>SHA1</item>
+        <item>SHA256</item>
+    </string-array>
+    <string-array name="totp_digits">
+        <item>6 цифр</item>
+        <item>8 цифр</item>
+    </string-array>
+</resources>
