@@ -43,6 +43,7 @@ UI и persistence намеренно используют стандартные
 - Сначала можно запросить StrongBox, затем корректно fallback на обычный Android Keystore.
 - `setUnlockedDeviceRequired(true)` применять только с API 35+.
 - Если БД содержит записи, а key отсутствует/невалиден, не создавать новый key молча. Данные невосстановимы; требуется явный reset flow.
+- Reset локального Android-хранилища допустим только после явного подтверждения пользователя. Перед `SecureEntryRepository.resetLocalStorage()` закрыть текущий repository; сброс удаляет Android БД и Keystore key, но не данные на часах.
 - Backup/data extraction остаются отключёнными, чувствительная Activity сохраняет `FLAG_SECURE`, release остаётся `debuggable=false`.
 - Не помещать secrets, QR payload, decrypted records или sync messages в logs, clipboard, exceptions, saved state, analytics и crash reports.
 - Временные `ByteArray` очищать там, где это практически возможно.

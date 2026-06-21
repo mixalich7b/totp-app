@@ -145,3 +145,61 @@ function testProtocolRejectsChecksumStaleRevisionAndInvalidEntry(logger as Test.
     }
     return passed;
 }
+
+(:test)
+function testProtocolRecoversFromLostReorderedAndRepeatedChunks(logger as Test.Logger) as Boolean {
+    var keys = ["active", "revision", "favorite", "staging", "staging_id", "staging_count",
+        "staging_revision", "staging_hash", "last_transfer"];
+    for (var keyIndex = 0; keyIndex < keys.size(); keyIndex++) {
+        Application.Storage.deleteValue(keys[keyIndex]);
+    }
+
+    var oldEntry = {"i" => "old", "n" => "Old", "s" => [1], "a" => 1, "d" => 6, "p" => 30};
+    var first = {"i" => "first", "n" => "First", "s" => [2], "a" => 1, "d" => 6, "p" => 30};
+    var second = {"i" => "second", "n" => "Second", "s" => [3], "a" => 2, "d" => 8, "p" => 60};
+    var store = new TotpStore();
+    var core = new TotpCore();
+
+    var oldHash = core.snapshotHash([oldEntry]);
+    store.begin({"v" => 1, "x" => "tx-old", "r" => 10, "n" => 1, "h" => oldHash});
+    store.chunk({"x" => "tx-old", "q" => 0, "e" => oldEntry});
+    store.commit({"x" => "tx-old"});
+
+    var newHash = core.snapshotHash([first, second]);
+    store.begin({"v" => 1, "x" => "tx-new", "r" => 11, "n" => 2, "h" => newHash});
+    store.chunk({"x" => "tx-new", "q" => 0, "e" => first});
+    var lostChunkCommit = store.commit({"x" => "tx-new"});
+
+    var activeAfterLoss = Application.Storage.getValue("active") as Lang.Array;
+    var revisionAfterLoss = Application.Storage.getValue("revision");
+
+    // A fresh BEGIN represents Android retrying the complete snapshot.
+    store.begin({"v" => 1, "x" => "tx-retry", "r" => 11, "n" => 2, "h" => newHash});
+    var reorderedChunk = store.chunk({"x" => "tx-retry", "q" => 1, "e" => second});
+    var firstChunk = store.chunk({"x" => "tx-retry", "q" => 0, "e" => first});
+    var repeatedChunk = store.chunk({"x" => "tx-retry", "q" => 0, "e" => first});
+    var secondChunk = store.chunk({"x" => "tx-retry", "q" => 1, "e" => second});
+    var commitResult = store.commit({"x" => "tx-retry"});
+    var repeatedCommit = store.commit({"x" => "tx-retry"});
+
+    var activeAfterRetry = Application.Storage.getValue("active") as Lang.Array;
+    var passed = true;
+    if (!lostChunkCommit.equals("Incomplete snapshot")) { passed = false; }
+    if (activeAfterLoss.size() != 1 || !totpValuesEqual(activeAfterLoss[0]["i"], "old")) { passed = false; }
+    if (revisionAfterLoss != 10) { passed = false; }
+    if (!reorderedChunk.equals("Wrong sequence")) { passed = false; }
+    if (firstChunk != null) { passed = false; }
+    if (!repeatedChunk.equals("Wrong sequence")) { passed = false; }
+    if (secondChunk != null) { passed = false; }
+    if (commitResult != 11 || repeatedCommit != 11) { passed = false; }
+    if (activeAfterRetry.size() != 2
+            || !totpValuesEqual(activeAfterRetry[0]["i"], "first")
+            || !totpValuesEqual(activeAfterRetry[1]["i"], "second")) {
+        passed = false;
+    }
+
+    for (var cleanupIndex = 0; cleanupIndex < keys.size(); cleanupIndex++) {
+        Application.Storage.deleteValue(keys[cleanupIndex]);
+    }
+    return passed;
+}

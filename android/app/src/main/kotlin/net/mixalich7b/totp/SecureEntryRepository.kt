@@ -111,10 +111,30 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
 
     companion object {
         private const val SCHEMA_VERSION = 1
+        internal const val DATABASE_NAME = "totp_entries.db"
+        internal const val KEY_ALIAS = "net.mixalich7b.totp.entries.v1"
+
+        internal fun resetLocalStorage(context: Context) {
+            val appContext = context.applicationContext
+            val databasePath = appContext.getDatabasePath(DATABASE_NAME)
+            if (databasePath.exists() && !appContext.deleteDatabase(DATABASE_NAME)) {
+                throw StorageUnavailableException("Не удалось удалить повреждённое локальное хранилище")
+            }
+            try {
+                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS)
+            } catch (error: Exception) {
+                throw StorageUnavailableException("Не удалось сбросить ключ локального хранилища", error)
+            }
+        }
     }
 }
 
-private class EntryDatabase(context: Context) : SQLiteOpenHelper(context, "totp_entries.db", null, 1) {
+private class EntryDatabase(context: Context) : SQLiteOpenHelper(
+    context,
+    SecureEntryRepository.DATABASE_NAME,
+    null,
+    1,
+) {
     override fun onConfigure(db: SQLiteDatabase) {
         db.setForeignKeyConstraintsEnabled(true)
         db.enableWriteAheadLogging()
@@ -203,7 +223,7 @@ private class EntryCrypto(private val database: SQLiteDatabase) {
         "$id|$schema|$revision".toByteArray(Charsets.UTF_8)
 
     companion object {
-        private const val KEY_ALIAS = "net.mixalich7b.totp.entries.v1"
+        private const val KEY_ALIAS = SecureEntryRepository.KEY_ALIAS
     }
 }
 

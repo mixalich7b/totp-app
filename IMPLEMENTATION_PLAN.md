@@ -184,30 +184,40 @@ lifecycle, синхронизации, storage или Garmin UI.
   Unicode, malformed input, неизвестных protobuf-полей и batch metadata;
 - протестирована сборка многочастной миграции не по порядку и безопасная очистка
   заменённых/отменённых batch-частей;
-- добавлены TOTP-тесты границы периода, ведущих нулей и времени после 2038 года.
+- добавлены TOTP-тесты границы периода, ведущих нулей и времени после 2038 года;
 - AES-GCM envelope покрыт тестами уникальности IV, AAD, round-trip и повреждения
   ciphertext/GCM tag;
 - добавлены Android instrumentation-тесты реальных SQLite/Android Keystore:
   отсутствие plaintext в колонках, уникальность IV, потеря ключа и повреждение tag;
-  все 3 теста прошли на эмуляторе Android 16/API 36 (`sdk_gphone64_arm64`);
+  все 4 теста, включая явный reset после потери ключа, прошли на эмуляторе
+  Android 16/API 36 (`sdk_gphone64_arm64`);
 - канонический snapshot hash проверяется одинаковым вектором на Android и Garmin;
   Garmin test PRG покрывает count, sequence, transfer ID, checksum, stale revision,
-  атомарный commit и его идемпотентный повтор.
+  атомарный commit и его идемпотентный повтор;
+- Garmin test PRG дополнен сценарием потери, перестановки и повтора chunks с
+  проверкой сохранности предыдущего snapshot и успешной полной повторной передачи;
+  test PRG собирается Connect IQ SDK 9.2.0.
 
 Остаётся:
 
-- protocol: потеря, перестановка и повтор chunks на уровне транспорта;
-- запуск расширенного Garmin test PRG в Device Simulator;
-- миграции SQLite и Garmin storage;
-- Android UI, Google Code Scanner integration и дополнительные Garmin Simulator/memory tests;
+- выполнить расширенный Garmin test PRG в Device Simulator: локальный Simulator
+  22 июня 2026 года зависал на передаче PRG через `monkeydo` даже после перезапуска;
 - property/fuzz tests для внешних форматов и канонической сериализации.
 
 ### 8.3. Доработка пользовательских сценариев
 
-- понятный reset flow при потере Android Keystore key;
+Выполнено:
+
+- при потере Android Keystore key или повреждении ciphertext приложение не создаёт
+  новый ключ молча, предупреждает о невозможности восстановления и предлагает
+  подтверждаемый reset локальной БД и ключа;
+- repository reset проверен instrumentation-тестом: после явного сброса создаётся
+  новое рабочее хранилище с revision 1.
+
+Остаётся:
+
 - полный preview, выбор записей и обработка дубликатов при массовом импорте;
 - progress, cancel, timeout, retry и точные ошибки синхронизации без секретных данных;
-- выбор часов при нескольких подключённых Garmin-устройствах;
 - операции `Забыть часы` и `Очистить данные часов`, доступные только после подтверждения пользователя.
 
 ### 8.4. Подготовка стабильной sideload-версии

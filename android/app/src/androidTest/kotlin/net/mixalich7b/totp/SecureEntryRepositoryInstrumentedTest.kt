@@ -70,6 +70,28 @@ class SecureEntryRepositoryInstrumentedTest {
     }
 
     @Test
+    fun testExplicitResetAfterMissingKeyCreatesFreshUsableStorage() {
+        SecureEntryRepository(context).use { repository ->
+            repository.add(listOf(entry("lost-key", "Lost key", "", byteArrayOf(9, 8, 7))))
+        }
+        deleteKey()
+
+        try {
+            SecureEntryRepository(context).use(SecureEntryRepository::list)
+            fail("StorageUnavailableException expected")
+        } catch (_: StorageUnavailableException) {
+            // The reset must remain explicit after the repository reports the lost key.
+        }
+
+        SecureEntryRepository.resetLocalStorage(context)
+        SecureEntryRepository(context).use { repository ->
+            assertTrue(repository.list().isEmpty())
+            assertEquals(1L, repository.add(listOf(entry("fresh", "Fresh", "", byteArrayOf(1, 2, 3)))))
+            assertEquals(listOf("Fresh"), repository.list().map(TotpEntry::displayName))
+        }
+    }
+
+    @Test
     fun testCorruptedGcmTagIsRejected() {
         SecureEntryRepository(context).use { repository ->
             repository.add(listOf(entry("corrupt", "Corrupt", "", byteArrayOf(4, 3, 2, 1))))
@@ -137,7 +159,7 @@ class SecureEntryRepositoryInstrumentedTest {
     }
 
     companion object {
-        private const val DATABASE_NAME = "totp_entries.db"
-        private const val KEY_ALIAS = "net.mixalich7b.totp.entries.v1"
+        private const val DATABASE_NAME = SecureEntryRepository.DATABASE_NAME
+        private const val KEY_ALIAS = SecureEntryRepository.KEY_ALIAS
     }
 }

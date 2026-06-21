@@ -30,6 +30,7 @@ class MainActivity : Activity() {
     private lateinit var adapter: EntryAdapter
     private lateinit var statusView: TextView
     private var entries = mutableListOf<TotpEntry>()
+    private var storageResetDialogVisible = false
     private val migrationCollector = MigrationBatchCollector()
     private val edgePaddingPx by lazy { dimenPx(R.dimen.totp_screen_edge_padding) }
     private val contentGapPx by lazy { dimenPx(R.dimen.totp_content_gap) }
@@ -125,11 +126,44 @@ class MainActivity : Activity() {
 
     private fun reload() {
         entries.forEach { it.secret.fill(0) }
+        entries = mutableListOf()
+        adapter.notifyDataSetChanged()
         try {
             entries = repository.list().toMutableList()
             adapter.notifyDataSetChanged()
             statusView.text = getString(R.string.local_status, repository.revision(), entries.size)
+        } catch (error: StorageUnavailableException) {
+            showStorageResetDialog(error)
         } catch (error: Exception) {
+            showError(error)
+        }
+    }
+
+    private fun showStorageResetDialog(error: StorageUnavailableException) {
+        statusView.text = getString(R.string.error_status, error.userMessage())
+        if (storageResetDialogVisible || isFinishing || isDestroyed) return
+        storageResetDialogVisible = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_storage_unavailable)
+            .setMessage(R.string.message_storage_unavailable)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.action_reset_storage) { _, _ -> resetLocalStorage() }
+            .setOnDismissListener { storageResetDialogVisible = false }
+            .show()
+    }
+
+    private fun resetLocalStorage() {
+        try {
+            entries.forEach { it.secret.fill(0) }
+            entries.clear()
+            adapter.notifyDataSetChanged()
+            repository.close()
+            SecureEntryRepository.resetLocalStorage(this)
+            repository = SecureEntryRepository(this)
+            reload()
+            toast(getString(R.string.storage_reset_complete))
+        } catch (error: Exception) {
+            runCatching { repository = SecureEntryRepository(this) }
             showError(error)
         }
     }
@@ -189,7 +223,7 @@ class MainActivity : Activity() {
                     dialog.dismiss()
                     reload()
                 } catch (error: Exception) {
-                    toast(error.userMessage())
+                    handleError(error)
                 }
             }
         }
@@ -226,7 +260,7 @@ class MainActivity : Activity() {
                 error(getString(R.string.error_not_totp_qr))
             }
         } catch (error: Exception) {
-            showError(error)
+            handleError(error)
         }
     }
 
@@ -241,7 +275,7 @@ class MainActivity : Activity() {
                     repository.add(imported)
                     reload()
                 } catch (error: Exception) {
-                    showError(error)
+                    handleError(error)
                 }
             }
             .show()
@@ -253,8 +287,12 @@ class MainActivity : Activity() {
             .setMessage(entry.displayName)
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_delete) { _, _ ->
-                repository.delete(entry.id)
-                reload()
+                try {
+                    repository.delete(entry.id)
+                    reload()
+                } catch (error: Exception) {
+                    handleError(error)
+                }
             }
             .show()
     }
@@ -281,6 +319,13 @@ class MainActivity : Activity() {
     private fun dimenPx(resId: Int) = resources.getDimensionPixelSize(resId)
     private fun dimen(resId: Int) = resources.getDimension(resId)
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+    private fun handleError(error: Throwable) {
+        if (error is StorageUnavailableException) {
+            showStorageResetDialog(error)
+        } else {
+            showError(error)
+        }
+    }
     private fun showError(error: Throwable) {
         statusView.text = getString(R.string.error_status, error.userMessage())
         toast(error.userMessage())
