@@ -10,6 +10,7 @@
     <string name="action_cancel">Отмена</string>
     <string name="action_save">Сохранить</string>
     <string name="action_import">Импортировать</string>
+    <string name="action_continue">Продолжить</string>
     <string name="action_delete">Удалить</string>
     <string name="action_reset_storage">Сбросить данные</string>
     <string name="local_status">Локальная revision %1$d; записей: %2$d</string>
@@ -21,6 +22,12 @@
     <string name="dialog_new_totp">Новый TOTP</string>
     <string name="dialog_import_totp">Импортировать TOTP?</string>
     <string name="dialog_import_google_authenticator">Импорт Google Authenticator</string>
+    <string name="dialog_import_duplicates">Обнаружены дубликаты</string>
+    <string name="import_duplicates_found">Совпадающих записей: %1$d. Выбранное действие будет применено ко всем дубликатам.</string>
+    <string name="import_nothing_selected">Импорт отменён: записи не выбраны</string>
+    <string name="import_complete">Импортировано или заменено: %1$d; найдено дубликатов: %2$d</string>
+    <string name="import_preview_item">%1$s&#10;Issuer: %2$s · аккаунт: %3$s&#10;%4$s · %5$d цифр · %6$d с</string>
+    <string name="value_not_set">не указан</string>
     <string name="dialog_delete_record">Удалить запись?</string>
     <string name="dialog_storage_unavailable">Локальные данные недоступны</string>
     <string name="message_storage_unavailable">Ключ Android Keystore потерян или зашифрованное хранилище повреждено. Восстановить записи нельзя. Сброс безвозвратно удалит все локальные записи; после этого их можно импортировать заново.</string>
@@ -43,7 +50,11 @@
     <string name="field_period_seconds">Период, секунд</string>
     <string name="entry_line_single">%1$s</string>
     <string name="entry_line_with_subtitle">%1$s&#10;%2$s</string>
-    <string name="import_item_bullet">• %1$s</string>
+    <string-array name="import_duplicate_policies">
+        <item>Пропустить дубликаты</item>
+        <item>Заменить существующие</item>
+        <item>Сохранить оба варианта</item>
+    </string-array>
     <string-array name="totp_algorithms">
         <item>SHA1</item>
         <item>SHA256</item>

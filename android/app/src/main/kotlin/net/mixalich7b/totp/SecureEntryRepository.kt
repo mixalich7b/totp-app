@@ -47,7 +47,12 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
     }
 
     @Synchronized
-    fun add(entries: List<TotpEntry>): Long {
+    fun add(entries: List<TotpEntry>): Long = write(entries, replaceExisting = false)
+
+    @Synchronized
+    fun importEntries(entries: List<TotpEntry>): Long = write(entries, replaceExisting = true)
+
+    private fun write(entries: List<TotpEntry>, replaceExisting: Boolean): Long {
         if (entries.isEmpty()) return revision()
         val db = database.writableDatabase
         var nextRevision = 0L
@@ -66,7 +71,17 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
                         put("iv", envelope.iv)
                         put("ciphertext", envelope.ciphertext)
                     }
-                    db.insertOrThrow("entries", null, values)
+                    if (replaceExisting) {
+                        val rowId = db.insertWithOnConflict(
+                            "entries",
+                            null,
+                            values,
+                            SQLiteDatabase.CONFLICT_REPLACE,
+                        )
+                        check(rowId != -1L) { "Не удалось сохранить импортированную запись" }
+                    } else {
+                        db.insertOrThrow("entries", null, values)
+                    }
                 } finally {
                     plaintext.fill(0)
                     normalized.secret.fill(0)

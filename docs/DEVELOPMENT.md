@@ -32,4 +32,9 @@ adb logcat -s TotpGarminSync
 
 Следующий активный этап — усиление автоматических тестов. Уже покрыты дополнительные граничные случаи Base32, `otpauth://`, Google Authenticator protobuf/multi-batch и TOTP после 2038 года; актуальный остаток работ перечислен в [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md#82-усиление-автоматических-тестов).
 
-Android storage instrumentation-набор из четырёх тестов успешно выполнен 22 июня 2026 года на эмуляторе Android 16/API 36 (`sdk_gphone64_arm64`). Проверены реальный Android Keystore и SQLite, уникальность IV, отсутствие plaintext в колонках, потеря Keystore key, явный reset с созданием нового рабочего хранилища и повреждение GCM tag.
+Android storage instrumentation-набор из пяти тестов успешно выполнен 22 июня
+2026 года на эмуляторе Android 16/API 36 (`sdk_gphone64_arm64`). Проверены реальный
+Android Keystore и SQLite, уникальность IV, отсутствие plaintext в колонках, потеря
+Keystore key, явный reset, повреждение GCM tag, а также атомарная замена записи с
+сохранением ID и единственным увеличением revision для всей операции. Preview
+позволяет выбрать записи, а политика дубликатов применяется ко всей выбранной пачке.

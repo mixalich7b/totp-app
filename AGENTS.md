@@ -54,6 +54,12 @@ QR импорт:
 - Google Authenticator migration поддерживает payload versions 1/2 и multi-batch по `batchId`, `batchIndex`, `batchSize`; неизвестные protobuf-поля пропускаются по wire type.
 - HOTP, SHA-512 и MD5 отклоняются без преобразования. Поддерживаются SHA-1/SHA-256, 6/8 digits, period 5–300.
 - Google Code Scanner зависит от Google Play services и не требует CAMERA permission. Не добавлять permission без смены scanner implementation.
+- Дубликат определяется по NFC-нормализованным case-insensitive issuer/account,
+  secret bytes, algorithm, digits и period. Display name не входит в ключ.
+- При `REPLACE` сохранять ID и createdAt существующей записи, чтобы синхронизация
+  не сбрасывала favorite на часах. Вся выбранная пачка изменяет revision один раз.
+- Не оставлять импортированные secrets в Activity после импорта, отмены или destroy;
+  `pendingImportEntries` должен очищаться с занулением byte arrays.
 
 ## Инварианты Garmin
 

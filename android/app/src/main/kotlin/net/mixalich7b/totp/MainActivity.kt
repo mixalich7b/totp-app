@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private var entries = mutableListOf<TotpEntry>()
     private var storageResetDialogVisible = false
+    private var pendingImportEntries: List<TotpEntry>? = null
     private val migrationCollector = MigrationBatchCollector()
     private val edgePaddingPx by lazy { dimenPx(R.dimen.totp_screen_edge_padding) }
     private val contentGapPx by lazy { dimenPx(R.dimen.totp_content_gap) }
@@ -265,20 +266,74 @@ class MainActivity : Activity() {
     }
 
     private fun previewImport(imported: List<TotpEntry>, titleRes: Int) {
-        val names = imported.joinToString("\n") { getString(R.string.import_item_bullet, it.displayName) }
+        clearPendingImport()
+        pendingImportEntries = imported
+        val selected = BooleanArray(imported.size) { true }
+        val previewItems = imported.map { entry ->
+            getString(
+                R.string.import_preview_item,
+                entry.displayName,
+                entry.issuer.ifBlank { getString(R.string.value_not_set) },
+                entry.accountName.ifBlank { getString(R.string.value_not_set) },
+                entry.algorithm.name,
+                entry.digits,
+                entry.periodSeconds,
+            )
+        }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(titleRes)
-            .setMessage(names)
-            .setNegativeButton(R.string.action_cancel) { _, _ -> imported.forEach { it.secret.fill(0) } }
+            .setMultiChoiceItems(previewItems, selected) { _, index, checked -> selected[index] = checked }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> clearPendingImport() }
             .setPositiveButton(R.string.action_import) { _, _ ->
-                try {
-                    repository.add(imported)
-                    reload()
-                } catch (error: Exception) {
-                    handleError(error)
+                val chosen = imported.filterIndexed { index, _ -> selected[index] }
+                if (chosen.isEmpty()) {
+                    statusView.text = getString(R.string.import_nothing_selected)
+                    clearPendingImport()
+                } else {
+                    val duplicateCount = ImportPlanner.duplicateCount(entries, chosen)
+                    if (duplicateCount == 0) {
+                        importSelected(chosen, ImportDuplicatePolicy.KEEP_BOTH)
+                    } else {
+                        showDuplicatePolicy(chosen, duplicateCount)
+                    }
                 }
             }
+            .setOnCancelListener { clearPendingImport() }
             .show()
+    }
+
+    private fun showDuplicatePolicy(selected: List<TotpEntry>, duplicateCount: Int) {
+        var policy = ImportDuplicatePolicy.SKIP
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_import_duplicates)
+            .setMessage(getString(R.string.import_duplicates_found, duplicateCount))
+            .setSingleChoiceItems(R.array.import_duplicate_policies, 0) { _, index ->
+                policy = ImportDuplicatePolicy.entries[index]
+            }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> clearPendingImport() }
+            .setPositiveButton(R.string.action_continue) { _, _ -> importSelected(selected, policy) }
+            .setOnCancelListener { clearPendingImport() }
+            .show()
+    }
+
+    private fun importSelected(selected: List<TotpEntry>, policy: ImportDuplicatePolicy) {
+        try {
+            val plan = ImportPlanner.plan(entries, selected, policy)
+            if (plan.entriesToWrite.isNotEmpty()) {
+                repository.importEntries(plan.entriesToWrite)
+                reload()
+            }
+            statusView.text = getString(R.string.import_complete, plan.entriesToWrite.size, plan.duplicateCount)
+        } catch (error: Exception) {
+            handleError(error)
+        } finally {
+            clearPendingImport()
+        }
+    }
+
+    private fun clearPendingImport() {
+        pendingImportEntries?.forEach { it.secret.fill(0) }
+        pendingImportEntries = null
     }
 
     private fun confirmDelete(entry: TotpEntry) {
@@ -334,6 +389,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         entries.forEach { it.secret.fill(0) }
+        clearPendingImport()
         migrationCollector.clear()
         syncManager.close()
         repository.close()

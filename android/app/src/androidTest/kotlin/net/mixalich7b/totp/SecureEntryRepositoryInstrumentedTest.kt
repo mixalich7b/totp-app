@@ -92,6 +92,26 @@ class SecureEntryRepositoryInstrumentedTest {
     }
 
     @Test
+    fun testImportReplacesByIdAndAdvancesRevisionOnce() {
+        val storedId = "stored-id"
+        SecureEntryRepository(context).use { repository ->
+            assertEquals(
+                1L,
+                repository.add(listOf(entry(storedId, "Old name", "Issuer", byteArrayOf(1, 2, 3)))),
+            )
+            val replacement = entry(storedId, "New name", "Issuer", byteArrayOf(1, 2, 3))
+            val fresh = entry("fresh-id", "Fresh", "Issuer", byteArrayOf(4, 5, 6))
+
+            assertEquals(2L, repository.importEntries(listOf(replacement, fresh)))
+
+            val restored = repository.list()
+            assertEquals(listOf(storedId, "fresh-id"), restored.map(TotpEntry::id))
+            assertEquals(listOf("New name", "Fresh"), restored.map(TotpEntry::displayName))
+            assertEquals(2L, repository.revision())
+        }
+    }
+
+    @Test
     fun testCorruptedGcmTagIsRejected() {
         SecureEntryRepository(context).use { repository ->
             repository.add(listOf(entry("corrupt", "Corrupt", "", byteArrayOf(4, 3, 2, 1))))
