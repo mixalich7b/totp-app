@@ -9,22 +9,21 @@ Garmin `Application.Storage` и payload Garmin Mobile SDK не имеют доп
 Screenshot/recents и Android backup отключены. Секреты не должны попадать в logs, clipboard, exceptions или saved state. Удаление не гарантирует физического стирания flash ни на Android, ни на Garmin.
 
 Android release APK не пишет transport diagnostics в logcat; служебное логирование
-включено только в debug build. Garmin оставляет минимальные `System.println` о типе
-сообщения, transfer ID, revision и sequence, но не печатает payload, secret, код,
-название записи или checksum.
+включено только в debug build. Garmin оставляет минимальные `System.println` об
+известном типе сообщения, безопасной категории результата и revision успешного
+commit, но не печатает transfer ID, payload, secret, код, название или checksum.
 
-Android release manifest содержит обычные permissions `INTERNET` и
-`ACCESS_NETWORK_STATE`, а также сгенерированное AndroidX внутреннее
-signature-permission. `INTERNET` объявлен проектом для интеграций с Google Play
-services/Garmin Connect, `ACCESS_NETWORK_STATE` добавляет транзитивный Google
-DataTransport. `CAMERA`, storage, location и Bluetooth permissions приложение не
-запрашивает. Google Code Scanner показывает системный экран сканирования через
+Android release manifest явно удаляет транзитивные `INTERNET` и
+`ACCESS_NETWORK_STATE`: сетевую работу выполняют процессы Garmin Connect и Google
+Play services. AndroidX добавляет только внутреннее signature-permission. `CAMERA`,
+storage, location и Bluetooth permissions приложение не запрашивает.
+Google Code Scanner показывает системный экран сканирования через
 Google Play services; приложение получает строку QR и разбирает её локально, без
 собственного сервера. Собственная аналитика не настроена, но Google-компоненты
 подчиняются условиям ML Kit/Google Play services.
 
-Подтверждаемая команда очистки часов удаляет active snapshot, favorite,
-незавершённый staging и служебную revision из `Application.Storage`. Это логическое
+Подтверждаемая команда очистки часов удаляет единые active/staging snapshot objects
+и favorite из `Application.Storage`. Это логическое
 удаление через Connect IQ API, а не гарантированный secure erase flash.
 
 При потере Android Keystore key локальные данные не восстанавливаются. Приложение не

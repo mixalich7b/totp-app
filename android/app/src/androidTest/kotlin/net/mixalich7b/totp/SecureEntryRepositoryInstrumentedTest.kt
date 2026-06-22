@@ -2,6 +2,9 @@ package net.mixalich7b.totp
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
+import android.text.InputType
+import android.view.View
+import android.widget.EditText
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -52,6 +55,27 @@ class SecureEntryRepositoryInstrumentedTest {
                 assertFalse(cursor.moveToNext())
             }
         }
+    }
+
+    @Test
+    fun testWriteDoesNotMutateCallerOwnedSecret() {
+        val secret = byteArrayOf(1, 2, 3, 4)
+        val original = secret.copyOf()
+        SecureEntryRepository(context).use { repository ->
+            repository.add(listOf(entry("caller-owned", "Caller", "", secret)))
+        }
+
+        assertTrue(original.contentEquals(secret))
+    }
+
+    @Test
+    fun testSecretInputDisablesSuggestionsAutofillAndStateSaving() {
+        val field = EditText(context).apply { configureSecretInput() }
+
+        assertTrue(field.inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0)
+        assertTrue(field.inputType and InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD != 0)
+        assertEquals(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS, field.importantForAutofill)
+        assertFalse(field.isSaveEnabled)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package net.mixalich7b.totp
 
+import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -20,6 +21,7 @@ import javax.crypto.spec.GCMParameterSpec
 
 class StorageUnavailableException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+@SuppressLint("UseKtx") // Explicit transactions keep revision updates and batch writes visibly atomic.
 class SecureEntryRepository(context: Context) : AutoCloseable {
     private val database = EntryDatabase(context.applicationContext)
     private val crypto = EntryCrypto(database.readableDatabase)
@@ -27,23 +29,28 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
     @Synchronized
     fun list(): List<TotpEntry> {
         val result = mutableListOf<TotpEntry>()
-        database.readableDatabase.query(
-            "entries", arrayOf("id", "revision", "schema_version", "iv", "ciphertext"),
-            null, null, null, null, "rowid ASC"
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                val id = cursor.getString(0)
-                val revision = cursor.getLong(1)
-                val schema = cursor.getInt(2)
-                val plaintext = crypto.decrypt(id, revision, schema, cursor.getBlob(3), cursor.getBlob(4))
-                try {
-                    result += EntryCodec.decode(plaintext).copy(id = id, revision = revision)
-                } finally {
-                    plaintext.fill(0)
+        try {
+            database.readableDatabase.query(
+                "entries", arrayOf("id", "revision", "schema_version", "iv", "ciphertext"),
+                null, null, null, null, "rowid ASC"
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getString(0)
+                    val revision = cursor.getLong(1)
+                    val schema = cursor.getInt(2)
+                    val plaintext = crypto.decrypt(id, revision, schema, cursor.getBlob(3), cursor.getBlob(4))
+                    try {
+                        result += EntryCodec.decode(plaintext).copy(id = id, revision = revision)
+                    } finally {
+                        plaintext.fill(0)
+                    }
                 }
             }
+            return result
+        } catch (error: Exception) {
+            result.forEach { it.secret.fill(0) }
+            throw error
         }
-        return result
     }
 
     @Synchronized
@@ -60,30 +67,33 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
         try {
             nextRevision = revision(db) + 1
             entries.forEach { entry ->
-                val normalized = entry.copy(revision = nextRevision, updatedAt = System.currentTimeMillis())
-                val plaintext = EntryCodec.encode(normalized)
+                val normalized = repositoryOwnedCopy(entry, nextRevision, System.currentTimeMillis())
                 try {
-                    val envelope = crypto.encrypt(normalized.id, nextRevision, SCHEMA_VERSION, plaintext)
-                    val values = ContentValues().apply {
-                        put("id", normalized.id)
-                        put("revision", nextRevision)
-                        put("schema_version", SCHEMA_VERSION)
-                        put("iv", envelope.iv)
-                        put("ciphertext", envelope.ciphertext)
-                    }
-                    if (replaceExisting) {
-                        val rowId = db.insertWithOnConflict(
-                            "entries",
-                            null,
-                            values,
-                            SQLiteDatabase.CONFLICT_REPLACE,
-                        )
-                        check(rowId != -1L) { "Не удалось сохранить импортированную запись" }
-                    } else {
-                        db.insertOrThrow("entries", null, values)
+                    val plaintext = EntryCodec.encode(normalized)
+                    try {
+                        val envelope = crypto.encrypt(normalized.id, nextRevision, SCHEMA_VERSION, plaintext)
+                        val values = ContentValues().apply {
+                            put("id", normalized.id)
+                            put("revision", nextRevision)
+                            put("schema_version", SCHEMA_VERSION)
+                            put("iv", envelope.iv)
+                            put("ciphertext", envelope.ciphertext)
+                        }
+                        if (replaceExisting) {
+                            val rowId = db.insertWithOnConflict(
+                                "entries",
+                                null,
+                                values,
+                                SQLiteDatabase.CONFLICT_REPLACE,
+                            )
+                            check(rowId != -1L) { "Не удалось сохранить импортированную запись" }
+                        } else {
+                            db.insertOrThrow("entries", null, values)
+                        }
+                    } finally {
+                        plaintext.fill(0)
                     }
                 } finally {
-                    plaintext.fill(0)
                     normalized.secret.fill(0)
                 }
             }
@@ -143,6 +153,9 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
         }
     }
 }
+
+internal fun repositoryOwnedCopy(entry: TotpEntry, revision: Long, updatedAt: Long): TotpEntry =
+    entry.copy(secret = entry.secret.copyOf(), revision = revision, updatedAt = updatedAt)
 
 private class EntryDatabase(context: Context) : SQLiteOpenHelper(
     context,
@@ -266,16 +279,21 @@ private object EntryCodec {
         val secretLength = input.readInt()
         require(secretLength in 1..TotpEntry.MAX_SECRET_BYTES) { "Некорректная длина секрета" }
         val secret = ByteArray(secretLength).also(input::readFully)
-        TotpEntry(
-            displayName = name,
-            issuer = issuer,
-            accountName = account,
-            secret = secret,
-            algorithm = TotpAlgorithm.fromWire(input.readInt()),
-            digits = input.readInt(),
-            periodSeconds = input.readInt(),
-            createdAt = input.readLong(),
-            updatedAt = input.readLong(),
-        )
+        try {
+            TotpEntry(
+                displayName = name,
+                issuer = issuer,
+                accountName = account,
+                secret = secret,
+                algorithm = TotpAlgorithm.fromWire(input.readInt()),
+                digits = input.readInt(),
+                periodSeconds = input.readInt(),
+                createdAt = input.readLong(),
+                updatedAt = input.readLong(),
+            )
+        } catch (error: Exception) {
+            secret.fill(0)
+            throw error
+        }
     }
 }

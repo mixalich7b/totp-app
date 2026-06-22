@@ -136,6 +136,8 @@ class MigrationParserTest {
     @Test
     fun `rejects unsupported versions and invalid batches`() {
         listOf(
+            migrationUri(protoMessage(bytesField(1, basicEntry("missing version")))),
+            migrationUri(payload(basicEntry("zero"), version = 0)),
             migrationUri(payload(basicEntry("future"), version = 3)),
             migrationUri(payload(basicEntry("bad batch"), batchSize = 2, batchIndex = 2)),
         ).forEach { uri ->
@@ -151,6 +153,15 @@ class MigrationParserTest {
         val truncatedLengthDelimited = byteArrayOf(0x0a, 0x05, 0x01)
         assertThrows(IllegalArgumentException::class.java) {
             MigrationParser.parse(migrationUri(truncatedLengthDelimited))
+        }
+        val overflowingVarint = protoMessage(
+            bytesField(1, basicEntry("valid")),
+            byteArrayOf(0x10),
+            ByteArray(9) { 0x80.toByte() },
+            byteArrayOf(0x02),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            MigrationParser.parse(migrationUri(overflowingVarint))
         }
     }
 

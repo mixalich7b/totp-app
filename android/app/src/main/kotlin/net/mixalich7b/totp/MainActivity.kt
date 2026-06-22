@@ -3,7 +3,9 @@ package net.mixalich7b.totp
 import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
+import android.os.Build
 import android.text.InputType
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +25,15 @@ import androidx.core.view.WindowCompat
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import java.util.concurrent.Executors
+
+internal fun EditText.configureSecretInput() {
+    inputType = InputType.TYPE_CLASS_TEXT or
+        InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
+        InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+    importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+    isSaveEnabled = false
+}
 
 class MainActivity : Activity() {
     private lateinit var repository: SecureEntryRepository
@@ -30,6 +41,13 @@ class MainActivity : Activity() {
     private lateinit var adapter: EntryAdapter
     private lateinit var statusView: TextView
     private lateinit var syncButton: Button
+    private lateinit var addButton: Button
+    private lateinit var qrButton: Button
+    private lateinit var clearWatchButton: Button
+    private lateinit var entriesList: ListView
+    private val storageExecutor = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var activityDestroyed = false
     private var entries = mutableListOf<TotpEntry>()
     private var storageResetDialogVisible = false
     private var pendingImportEntries: List<TotpEntry>? = null
@@ -92,25 +110,26 @@ class MainActivity : Activity() {
         }
         titleRow.addView(TextView(this).apply {
             text = getString(R.string.app_name)
-            textSize = titleTextSizePx
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, titleTextSizePx)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        titleRow.addView(Button(this).apply {
+        clearWatchButton = Button(this).apply {
             text = getString(R.string.action_clear_watch)
             contentDescription = getString(R.string.dialog_clear_watch)
             setOnClickListener { confirmClearWatch() }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        titleRow.addView(clearWatchButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(titleRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = contentGapPx
         })
         statusView = TextView(this).apply {
             text = getString(R.string.status_initializing)
-            textSize = statusTextSizePx
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, statusTextSizePx)
             setPadding(0, 0, 0, contentGapPx)
         }
         root.addView(statusView)
 
         adapter = EntryAdapter()
-        val list = ListView(this).apply {
+        entriesList = ListView(this).apply {
             adapter = this@MainActivity.adapter
             emptyView = TextView(this@MainActivity).apply {
                 text = getString(R.string.empty_secrets)
@@ -118,18 +137,20 @@ class MainActivity : Activity() {
             }
             setOnItemClickListener { _, _, position, _ -> confirmDelete(entries[position]) }
         }
-        root.addView(list.emptyView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(entriesList.emptyView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(entriesList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        buttons.addView(Button(this).apply {
+        addButton = Button(this).apply {
             text = getString(R.string.action_add)
             setOnClickListener { showAddDialog() }
-        }, weighted())
-        buttons.addView(Button(this).apply {
+        }
+        buttons.addView(addButton, weighted())
+        qrButton = Button(this).apply {
             text = getString(R.string.qr)
             setOnClickListener { scanQr() }
-        }, weighted())
+        }
+        buttons.addView(qrButton, weighted())
         syncButton = Button(this).apply {
             text = getString(R.string.action_sync)
             setOnClickListener {
@@ -144,26 +165,30 @@ class MainActivity : Activity() {
         return root
     }
 
+    @Suppress("DEPRECATION")
     private fun applyWindowSurfaceColors() {
         val surfaceColor = ContextCompat.getColor(this, R.color.app_surface)
-        window.statusBarColor = surfaceColor
-        window.navigationBarColor = surfaceColor
+        if (Build.VERSION.SDK_INT < 35) {
+            window.statusBarColor = surfaceColor
+            window.navigationBarColor = surfaceColor
+        }
         window.decorView.setBackgroundColor(surfaceColor)
     }
 
-    private fun reload() {
+    private fun reload(afterReload: () -> Unit = {}) {
         entries.forEach { it.secret.fill(0) }
         entries = mutableListOf()
         adapter.notifyDataSetChanged()
-        try {
-            entries = repository.list().toMutableList()
-            adapter.notifyDataSetChanged()
-            statusView.text = getString(R.string.local_status, repository.revision(), entries.size)
-        } catch (error: StorageUnavailableException) {
-            showStorageResetDialog(error)
-        } catch (error: Exception) {
-            showError(error)
-        }
+        runStorage(
+            operation = { LocalSnapshot(repository.list(), repository.revision()) },
+            onSuccess = { snapshot ->
+                entries = snapshot.entries.toMutableList()
+                adapter.notifyDataSetChanged()
+                statusView.text = getString(R.string.local_status, snapshot.revision, entries.size)
+                afterReload()
+            },
+            onDiscard = { snapshot -> snapshot.entries.forEach { it.secret.fill(0) } },
+        )
     }
 
     private fun showStorageResetDialog(error: StorageUnavailableException) {
@@ -180,26 +205,37 @@ class MainActivity : Activity() {
     }
 
     private fun resetLocalStorage() {
-        try {
-            entries.forEach { it.secret.fill(0) }
-            entries.clear()
-            adapter.notifyDataSetChanged()
-            repository.close()
-            SecureEntryRepository.resetLocalStorage(this)
-            repository = SecureEntryRepository(this)
-            reload()
-            toast(getString(R.string.storage_reset_complete))
-        } catch (error: Exception) {
-            runCatching { repository = SecureEntryRepository(this) }
-            showError(error)
-        }
+        entries.forEach { it.secret.fill(0) }
+        entries.clear()
+        adapter.notifyDataSetChanged()
+        runStorage(
+            operation = {
+                try {
+                    repository.close()
+                    SecureEntryRepository.resetLocalStorage(this)
+                    repository = SecureEntryRepository(this)
+                } catch (error: Exception) {
+                    runCatching { repository = SecureEntryRepository(this) }
+                    throw error
+                }
+            },
+            onSuccess = {
+                reload()
+                toast(getString(R.string.storage_reset_complete))
+            },
+            onFailure = { error ->
+                showError(error)
+            },
+        )
     }
 
     private fun showAddDialog() {
         val name = field(R.string.field_name)
         val issuer = field(R.string.field_issuer_optional)
         val account = field(R.string.field_account_optional)
-        val secret = field(R.string.field_base32_secret).apply { inputType = InputType.TYPE_CLASS_TEXT }
+        val secret = field(R.string.field_base32_secret).apply {
+            configureSecretInput()
+        }
         val algorithm = Spinner(this).apply {
             adapter = ArrayAdapter(
                 this@MainActivity,
@@ -246,13 +282,26 @@ class MainActivity : Activity() {
                         digits = if (digits.selectedItemPosition == 0) 6 else 8,
                         periodSeconds = period.text.toString().toInt(),
                     )
-                    repository.add(listOf(entry))
-                    dialog.dismiss()
-                    reload()
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                    runStorage(
+                        operation = { repository.add(listOf(entry)) },
+                        onSuccess = {
+                            dialog.dismiss()
+                            reload()
+                        },
+                        onFailure = { error ->
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                            handleError(error)
+                        },
+                        onFinished = { entry.secret.fill(0) },
+                    )
                 } catch (error: Exception) {
                     handleError(error)
                 }
             }
+        }
+        dialog.setOnDismissListener {
+            secret.text?.clear()
         }
         dialog.show()
     }
@@ -383,13 +432,25 @@ class MainActivity : Activity() {
         try {
             val plan = ImportPlanner.plan(entries, selected, policy)
             if (plan.entriesToWrite.isNotEmpty()) {
-                repository.importEntries(plan.entriesToWrite)
-                reload()
+                runStorage(
+                    operation = { repository.importEntries(plan.entriesToWrite) },
+                    onSuccess = {
+                        reload {
+                            statusView.text = getString(
+                                R.string.import_complete,
+                                plan.entriesToWrite.size,
+                                plan.duplicateCount,
+                            )
+                        }
+                    },
+                    onFinished = { clearPendingImport() },
+                )
+            } else {
+                statusView.text = getString(R.string.import_complete, 0, plan.duplicateCount)
+                clearPendingImport()
             }
-            statusView.text = getString(R.string.import_complete, plan.entriesToWrite.size, plan.duplicateCount)
         } catch (error: Exception) {
             handleError(error)
-        } finally {
             clearPendingImport()
         }
     }
@@ -405,25 +466,44 @@ class MainActivity : Activity() {
             .setMessage(entry.displayName)
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_delete) { _, _ ->
-                try {
-                    repository.delete(entry.id)
-                    reload()
-                } catch (error: Exception) {
-                    handleError(error)
-                }
+                runStorage(
+                    operation = { repository.delete(entry.id) },
+                    onSuccess = { reload() },
+                )
             }
             .show()
     }
 
     private fun synchronize() {
+        setMutationControlsEnabled(false)
         syncButton.setText(R.string.action_cancel_sync)
-        syncManager.sync(entries, repository.revision()) { result ->
+        syncButton.isEnabled = false
+        runStorage(
+            operation = { LocalSnapshot(repository.list(), repository.revision()) },
+            onSuccess = { snapshot ->
+                syncButton.isEnabled = true
+                startSync(snapshot.entries, snapshot.revision)
+            },
+            onFailure = { error ->
+                setMutationControlsEnabled(true)
+                syncButton.isEnabled = true
+                syncButton.setText(R.string.action_retry_sync)
+                handleError(error)
+            },
+            onDiscard = { snapshot -> snapshot.entries.forEach { it.secret.fill(0) } },
+        )
+    }
+
+    private fun startSync(snapshotEntries: List<TotpEntry>, revision: Long) {
+        syncManager.sync(snapshotEntries, revision) { result ->
             runOnUiThread {
                 result.onSuccess {
+                    setMutationControlsEnabled(true)
                     syncButton.isEnabled = true
                     syncButton.setText(R.string.action_sync)
                     statusView.text = it
                 }.onFailure { error ->
+                    setMutationControlsEnabled(true)
                     syncButton.isEnabled = true
                     if (error is SyncCancelledException) {
                         syncButton.setText(R.string.action_sync)
@@ -435,6 +515,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        snapshotEntries.forEach { it.secret.fill(0) }
     }
 
     private fun confirmClearWatch() {
@@ -443,10 +524,12 @@ class MainActivity : Activity() {
             .setMessage(R.string.message_clear_watch)
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_clear_watch) { _, _ ->
+                setMutationControlsEnabled(false)
                 syncButton.isEnabled = false
                 syncButton.setText(R.string.action_finishing_sync)
                 syncManager.clearWatch { result ->
                     runOnUiThread {
+                        setMutationControlsEnabled(true)
                         syncButton.isEnabled = true
                         syncButton.setText(R.string.action_sync)
                         result.onSuccess { statusView.text = it }.onFailure(::showError)
@@ -467,6 +550,12 @@ class MainActivity : Activity() {
     }
 
     private fun weighted() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+    private fun setMutationControlsEnabled(enabled: Boolean) {
+        addButton.isEnabled = enabled
+        qrButton.isEnabled = enabled
+        clearWatchButton.isEnabled = enabled
+        entriesList.isEnabled = enabled
+    }
     private fun dimenPx(resId: Int) = resources.getDimensionPixelSize(resId)
     private fun dimen(resId: Int) = resources.getDimension(resId)
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
@@ -483,12 +572,43 @@ class MainActivity : Activity() {
     }
     private fun Throwable.userMessage() = message ?: javaClass.simpleName
 
+    private fun <T> runStorage(
+        operation: () -> T,
+        onSuccess: (T) -> Unit,
+        onFailure: (Throwable) -> Unit = ::handleError,
+        onFinished: () -> Unit = {},
+        onDiscard: (T) -> Unit = {},
+    ) {
+        storageExecutor.execute {
+            val result = runCatching(operation)
+            if (activityDestroyed) {
+                result.getOrNull()?.let(onDiscard)
+                onFinished()
+                return@execute
+            }
+            runOnUiThread {
+                if (activityDestroyed) {
+                    result.getOrNull()?.let(onDiscard)
+                    onFinished()
+                    return@runOnUiThread
+                }
+                try {
+                    result.fold(onSuccess, onFailure)
+                } finally {
+                    onFinished()
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
+        activityDestroyed = true
         entries.forEach { it.secret.fill(0) }
         clearPendingImport()
         migrationCollector.clear()
         syncManager.close()
-        repository.close()
+        storageExecutor.execute { repository.close() }
+        storageExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -498,7 +618,7 @@ class MainActivity : Activity() {
         override fun getItemId(position: Int) = position.toLong()
         override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
             val view = (convertView as? TextView) ?: TextView(this@MainActivity).apply {
-                textSize = rowTextSizePx
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, rowTextSizePx)
                 setPadding(rowPaddingHorizontalPx, rowPaddingVerticalPx, rowPaddingHorizontalPx, rowPaddingVerticalPx)
             }
             val entry = getItem(position)
@@ -511,4 +631,6 @@ class MainActivity : Activity() {
             return view
         }
     }
+
+    private data class LocalSnapshot(val entries: List<TotpEntry>, val revision: Long)
 }

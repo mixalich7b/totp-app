@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Network work is owned by Garmin Connect / Google Play services processes. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -10,6 +12,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"

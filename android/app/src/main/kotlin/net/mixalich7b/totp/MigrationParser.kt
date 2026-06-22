@@ -34,7 +34,7 @@ object MigrationParser {
             val entries = mutableListOf<TotpEntry>()
             val issues = mutableListOf<MigrationEntryIssue>()
             try {
-                var version = 0L
+                var version: Long? = null
                 var batchSize = 1
                 var batchIndex = 0
                 var batchId = 0L
@@ -75,7 +75,7 @@ object MigrationParser {
                         else -> root.skip(tag.wireType)
                     }
                 }
-                require(version in 0..2) { "Неподдерживаемая версия migration payload: $version" }
+                require(version in 1L..2L) { "Неподдерживаемая версия migration payload: $version" }
                 require(entries.isNotEmpty() || issues.isNotEmpty()) { "В QR нет TOTP записей" }
                 require(batchSize in 1..100 && batchIndex in 0 until batchSize) {
                     "Некорректный migration batch"
@@ -213,6 +213,7 @@ object MigrationParser {
             while (shift < 64) {
                 require(position < data.size) { "Обрезанный protobuf" }
                 val byte = data[position++].toInt() and 0xff
+                require(shift != 63 || byte <= 1) { "Слишком длинный protobuf varint" }
                 result = result or ((byte and 0x7f).toLong() shl shift)
                 if (byte and 0x80 == 0) return result
                 shift += 7

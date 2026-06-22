@@ -11,8 +11,8 @@ android {
         applicationId = "net.mixalich7b.totp"
         minSdk = 28
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     }
@@ -44,7 +44,7 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-ktx:1.19.0")
     implementation("com.garmin.connectiq:ciq-companion-app-sdk:2.4.0@aar")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 

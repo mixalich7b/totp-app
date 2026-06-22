@@ -1,6 +1,7 @@
 <resources>
     <string id="AppName">TOTP mixalich7b</string>
     <string id="Empty">Синхронизируйте с Android</string>
+    <string id="CorruptStorage">Хранилище повреждено</string>
+    <string id="InvalidTime">Проверьте время часов</string>
     <string id="FavoriteHint">START: избранное</string>
 </resources>
-

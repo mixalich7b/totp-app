@@ -39,6 +39,12 @@ data class TotpEntry(
 ) {
     init {
         require(displayName.isNotBlank()) { "Название обязательно" }
+        require(displayName.length <= MAX_DISPLAY_NAME_CHARS) {
+            "Название длиннее $MAX_DISPLAY_NAME_CHARS символов"
+        }
+        require(issuer.length <= MAX_METADATA_CHARS && accountName.length <= MAX_METADATA_CHARS) {
+            "Issuer или аккаунт длиннее $MAX_METADATA_CHARS символов"
+        }
         require(secret.isNotEmpty()) { "Секрет пуст" }
         require(secret.size <= MAX_SECRET_BYTES) { "Секрет длиннее $MAX_SECRET_BYTES байт" }
         require(digits == 6 || digits == 8) { "Допустимо 6 или 8 цифр" }
@@ -55,6 +61,8 @@ data class TotpEntry(
 
     companion object {
         const val MAX_SECRET_BYTES = 1024
+        const val MAX_DISPLAY_NAME_CHARS = 128
+        const val MAX_METADATA_CHARS = 1024
     }
 }
 

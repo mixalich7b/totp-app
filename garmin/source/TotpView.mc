@@ -5,6 +5,13 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
+function totpClampSelection(selected, count) {
+    if (count <= 0) { return 0; }
+    if (selected < 0) { return 0; }
+    if (selected >= count) { return count - 1; }
+    return selected;
+}
+
 class TotpView extends WatchUi.View {
     private var _selected = 0;
     private var _timer;
@@ -36,6 +43,7 @@ class TotpView extends WatchUi.View {
     public function chooseFavorite() {
         var entries = (new TotpStore()).entries();
         if (entries.size() > 0) {
+            _selected = totpClampSelection(_selected, entries.size());
             (new TotpStore()).setFavorite(entries[_selected]["i"]);
             WatchUi.requestUpdate();
         }
@@ -46,15 +54,26 @@ class TotpView extends WatchUi.View {
         dc.clear();
         var width = dc.getWidth();
         var height = dc.getHeight();
-        var entries = (new TotpStore()).entries();
+        var store = new TotpStore();
+        if (store.isCorrupt()) {
+            dc.drawText(width / 2, height / 2 - 20, Graphics.FONT_XTINY,
+                WatchUi.loadResource(Rez.Strings.CorruptStorage), Graphics.TEXT_JUSTIFY_CENTER);
+            return;
+        }
+        var entries = store.entries();
         if (entries.size() == 0) {
             dc.drawText(width / 2, height / 2 - 20, Graphics.FONT_XTINY,
                 WatchUi.loadResource(Rez.Strings.Empty), Graphics.TEXT_JUSTIFY_CENTER);
             return;
         }
 
-        if (_selected >= entries.size()) { _selected = entries.size() - 1; }
+        _selected = totpClampSelection(_selected, entries.size());
         var now = Time.now().value();
+        if (now < 1577836800) {
+            dc.drawText(width / 2, height / 2 - 20, Graphics.FONT_XTINY,
+                WatchUi.loadResource(Rez.Strings.InvalidTime), Graphics.TEXT_JUSTIFY_CENTER);
+            return;
+        }
         var core = new TotpCore();
         for (var offset = -1; offset <= 1; offset++) {
             var index = _selected + offset;
@@ -64,7 +83,9 @@ class TotpView extends WatchUi.View {
             var isSelected = offset == 0;
             var isFavorite = totpValuesEqual(entry["i"], (new TotpStore()).favoriteId());
             dc.setColor(isSelected ? Graphics.COLOR_WHITE : Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-            var name = (isFavorite ? "★ " : "") + entry["n"];
+            var rawName = entry["n"];
+            var shortName = rawName.length() > 28 ? rawName.substring(0, 27) + "…" : rawName;
+            var name = (isFavorite ? "★ " : "") + shortName;
             dc.drawText(width / 2, isSelected ? y - 60 : y - 40, isSelected ? Graphics.FONT_SMALL : Graphics.FONT_XTINY,
                 name, Graphics.TEXT_JUSTIFY_CENTER);
             dc.drawText(width / 2, isSelected ? y - 25 : y - 5, isSelected ? Graphics.FONT_NUMBER_MILD : Graphics.FONT_SMALL,

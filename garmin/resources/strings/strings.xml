@@ -1,6 +1,7 @@
 <resources>
     <string id="AppName">TOTP mixalich7b</string>
     <string id="Empty">Run sync on Android</string>
+    <string id="CorruptStorage">Corrupted storage</string>
+    <string id="InvalidTime">Check watch time</string>
     <string id="FavoriteHint">START: favorite</string>
 </resources>
-

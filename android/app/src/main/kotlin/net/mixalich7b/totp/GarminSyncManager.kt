@@ -10,10 +10,11 @@ import com.garmin.android.connectiq.IQDevice
 import com.garmin.android.connectiq.exception.InvalidStateException
 import com.garmin.android.connectiq.exception.ServiceUnavailableException
 import java.util.UUID
+import java.util.concurrent.Executors
 
 internal class SyncCancelledException(message: String) : Exception(message)
 
-private enum class PendingOperation { SNAPSHOT, CLEAR_WATCH }
+internal enum class PendingOperation { SNAPSHOT, CLEAR_WATCH }
 
 private object SyncLog {
     fun i(tag: String, message: String) {
@@ -39,6 +40,7 @@ class GarminSyncManager(
     private val connectIq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
     private val watchApp = IQApp(APP_UUID)
     private val timeoutHandler = Handler(Looper.getMainLooper())
+    private val messageExecutor = Executors.newSingleThreadExecutor()
     @Volatile
     private var ready = false
     @Volatile
@@ -70,35 +72,27 @@ class GarminSyncManager(
                 return
             }
             messages.filterIsInstance<Map<*, *>>().forEach { message ->
-                val type = normalizeMessageType(message["t"])
-                val responseTransferId = message["x"]?.toString()
+                val type = normalizeSyncMessageType(message["t"])
                 SyncLog.i(TAG, "Received message: type=${type ?: "missing"}, transfer=${pendingTransferId ?: "none"}")
-                if (!responseMatchesTransfer(responseTransferId, pendingTransferId)) {
-                    SyncLog.i(TAG, "Ignoring response from inactive transfer=$responseTransferId")
-                    return@forEach
-                }
-                when (type) {
-                    "a" -> {
-                        val revision = (message["r"] as? Number)?.toLong() ?: return@forEach
-                        if (pendingOperation == PendingOperation.SNAPSHOT && revision == pendingRevision) {
-                            SyncLog.i(TAG, "ACK accepted: revision=$revision, transfer=${pendingTransferId ?: "none"}")
-                            finish(Result.success(appContext.getString(R.string.sync_complete, revision)))
-                        } else {
-                            SyncLog.w(TAG, "ACK ignored: revision=$revision, expected=$pendingRevision, transfer=${pendingTransferId ?: "none"}")
-                        }
+                when (val response = classifyWatchResponse(
+                    message,
+                    pendingTransferId,
+                    pendingRevision,
+                    pendingOperation,
+                )) {
+                    is WatchResponse.SnapshotAck -> {
+                        SyncLog.i(TAG, "ACK accepted: revision=${response.revision}, transfer=${pendingTransferId ?: "none"}")
+                        finish(Result.success(appContext.getString(R.string.sync_complete, response.revision)))
                     }
-                    "z" -> {
-                        if (pendingOperation == PendingOperation.CLEAR_WATCH) {
-                            SyncLog.i(TAG, "Watch clear ACK accepted: transfer=${pendingTransferId ?: "none"}")
-                            finish(Result.success(appContext.getString(R.string.watch_clear_complete)))
-                        }
+                    WatchResponse.ClearAck -> {
+                        SyncLog.i(TAG, "Watch clear ACK accepted: transfer=${pendingTransferId ?: "none"}")
+                        finish(Result.success(appContext.getString(R.string.watch_clear_complete)))
                     }
-                    "e" -> {
-                        val errorCode = message["m"]?.toString()
-                        SyncLog.w(TAG, "Watch rejected transfer=${pendingTransferId ?: "none"}, category=${watchErrorLogCategory(errorCode)}")
-                        finish(Result.failure(syncFailure(watchErrorMessageRes(errorCode))))
+                    is WatchResponse.Error -> {
+                        SyncLog.w(TAG, "Watch rejected transfer=${pendingTransferId ?: "none"}, category=${watchErrorLogCategory(response.code)}")
+                        finish(Result.failure(syncFailure(watchErrorMessageRes(response.code))))
                     }
-                    else -> SyncLog.w(TAG, "Ignoring unsupported response type=${type ?: "missing"}, transfer=${pendingTransferId ?: "none"}")
+                    WatchResponse.Ignore -> SyncLog.i(TAG, "Ignoring unrelated or malformed watch response")
                 }
             }
         }
@@ -129,6 +123,10 @@ class GarminSyncManager(
     @Synchronized
     fun sync(entries: List<TotpEntry>, revision: Long, completion: (Result<String>) -> Unit) {
         SyncLog.i(TAG, "Sync requested: revision=$revision, entries=${entries.size}")
+        if (entries.size > MAX_SYNC_ENTRIES) {
+            completion(Result.failure(syncFailure(R.string.sync_too_many_entries, MAX_SYNC_ENTRIES)))
+            return
+        }
         if (!ready) {
             SyncLog.w(TAG, "Sync rejected: Connect IQ SDK is not ready")
             completion(Result.failure(IllegalStateException(appContext.getString(R.string.sync_sdk_not_ready))))
@@ -168,27 +166,29 @@ class GarminSyncManager(
         cancelAllowed = true
         cancellationChanged(true)
         armTimeout()
-        val messages = mutableListOf<Map<String, Any>>()
-        messages += mapOf(
-            "t" to "b", "v" to 1, "x" to transferId, "r" to revision,
-            "n" to entries.size, "h" to SnapshotHasher.sha256(entries)
-        )
-        entries.forEachIndexed { index, entry ->
-            messages += mapOf(
-                "t" to "c", "x" to transferId, "q" to index,
-                "e" to mapOf(
-                    "i" to entry.id,
-                    "n" to entry.displayName,
-                    "s" to entry.secret.map { it.toInt() and 0xff },
-                    "a" to entry.algorithm.wireValue,
-                    "d" to entry.digits,
-                    "p" to entry.periodSeconds,
+        val ownedEntries = entries.map { it.copy(secret = it.secret.copyOf()) }
+        statusChanged(appContext.getString(R.string.sync_preparing))
+        messageExecutor.execute {
+            val prepared = runCatching { buildSyncMessages(ownedEntries, revision, transferId) }
+            ownedEntries.forEach { it.secret.fill(0) }
+            timeoutHandler.post {
+                if (!isActive(transferId)) return@post
+                prepared.fold(
+                    onSuccess = { messages ->
+                        SyncLog.i(
+                            TAG,
+                            "Transfer prepared: transfer=$transferId, revision=$revision, " +
+                                "entries=${entries.size}, messages=${messages.size}",
+                        )
+                        sendNext(device, messages, 0, entries.size, transferId)
+                    },
+                    onFailure = { error ->
+                        SyncLog.e(TAG, "Failed to prepare transfer=$transferId", error)
+                        finish(Result.failure(syncFailure(R.string.sync_transport_unavailable)))
+                    },
                 )
-            )
+            }
         }
-        messages += mapOf("t" to "m", "x" to transferId)
-        SyncLog.i(TAG, "Transfer prepared: transfer=$transferId, revision=$revision, entries=${entries.size}, messages=${messages.size}")
-        sendNext(device, messages, 0, entries.size, transferId)
     }
 
     @Synchronized
@@ -263,7 +263,7 @@ class GarminSyncManager(
             armTimeout()
             return
         }
-        val type = normalizeMessageType(messages[index]["t"]) ?: "missing"
+        val type = normalizeSyncMessageType(messages[index]["t"]) ?: "missing"
         if (type == "m") {
             synchronized(this) { cancelAllowed = false }
             cancellationChanged(false)
@@ -373,14 +373,14 @@ class GarminSyncManager(
         cancelAllowed = false
         runCatching { connectIq.unregisterForApplicationEvents() }
         runCatching { connectIq.shutdown(appContext) }
+        messageExecutor.shutdownNow()
     }
 
     companion object {
         const val APP_UUID = "fa0bbecf-1e62-477b-b9cf-740aca2a4b32"
         private const val TAG = "TotpGarminSync"
         private const val SYNC_TIMEOUT_MS = 30_000L
-        private fun normalizeMessageType(value: Any?): String? =
-            value?.toString()?.removePrefix(":")
+        internal const val MAX_SYNC_ENTRIES = 100
     }
 
     private fun syncFailure(messageRes: Int, vararg arguments: Any) =
@@ -397,6 +397,70 @@ class GarminSyncManager(
 
 }
 
+internal sealed interface WatchResponse {
+    data object Ignore : WatchResponse
+    data class SnapshotAck(val revision: Long) : WatchResponse
+    data object ClearAck : WatchResponse
+    data class Error(val code: String?) : WatchResponse
+}
+
+internal fun classifyWatchResponse(
+    message: Map<*, *>,
+    pendingTransferId: String?,
+    pendingRevision: Long,
+    pendingOperation: PendingOperation?,
+): WatchResponse {
+    if (!responseMatchesTransfer(message["x"], pendingTransferId)) return WatchResponse.Ignore
+    return when (normalizeSyncMessageType(message["t"])) {
+        "a" -> {
+            val revision = (message["r"] as? Number)?.toLong()
+            if (pendingOperation == PendingOperation.SNAPSHOT && revision == pendingRevision) {
+                WatchResponse.SnapshotAck(revision)
+            } else {
+                WatchResponse.Ignore
+            }
+        }
+        "z" -> if (pendingOperation == PendingOperation.CLEAR_WATCH) {
+            WatchResponse.ClearAck
+        } else {
+            WatchResponse.Ignore
+        }
+        "e" -> WatchResponse.Error(message["m"]?.toString())
+        else -> WatchResponse.Ignore
+    }
+}
+
+internal fun normalizeSyncMessageType(value: Any?): String? =
+    value?.toString()?.removePrefix(":")
+
+internal fun buildSyncMessages(
+    entries: List<TotpEntry>,
+    revision: Long,
+    transferId: String,
+): List<Map<String, Any>> {
+    require(entries.size <= GarminSyncManager.MAX_SYNC_ENTRIES)
+    val messages = mutableListOf<Map<String, Any>>()
+    messages += mapOf(
+        "t" to "b", "v" to 1, "x" to transferId, "r" to revision,
+        "n" to entries.size, "h" to SnapshotHasher.sha256(entries),
+    )
+    entries.forEachIndexed { index, entry ->
+        messages += mapOf(
+            "t" to "c", "x" to transferId, "q" to index,
+            "e" to mapOf(
+                "i" to entry.id,
+                "n" to entry.displayName,
+                "s" to entry.secret.map { it.toInt() and 0xff },
+                "a" to entry.algorithm.wireValue,
+                "d" to entry.digits,
+                "p" to entry.periodSeconds,
+            ),
+        )
+    }
+    messages += mapOf("t" to "m", "x" to transferId)
+    return messages
+}
+
 internal fun messageStatusMessageRes(status: ConnectIQ.IQMessageStatus): Int = when (status) {
     ConnectIQ.IQMessageStatus.SUCCESS -> R.string.sync_status_success
     ConnectIQ.IQMessageStatus.FAILURE_UNKNOWN -> R.string.sync_status_unknown
@@ -409,7 +473,7 @@ internal fun messageStatusMessageRes(status: ConnectIQ.IQMessageStatus): Int = w
 }
 
 internal fun responseMatchesTransfer(responseTransferId: Any?, pendingTransferId: String?): Boolean =
-    responseTransferId == null || responseTransferId.toString() == pendingTransferId
+    responseTransferId != null && pendingTransferId != null && responseTransferId.toString() == pendingTransferId
 
 internal fun sdkErrorMessageRes(status: ConnectIQ.IQSdkErrorStatus): Int = when (status) {
     ConnectIQ.IQSdkErrorStatus.GCM_NOT_INSTALLED -> R.string.sync_garmin_connect_missing

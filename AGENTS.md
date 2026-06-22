@@ -21,7 +21,10 @@
 - Sync protocol: v1, точная схема в `protocol/schema.md`.
 - Target Garmin profile: `fenix8pro47mm`, min Connect IQ API 6.0.0.
 
-Не менять UUID, alias, AAD, storage schema или wire format без явной миграции. При несовместимом изменении wire format увеличить protocol version и одновременно обновить обе платформы и документацию.
+Не менять UUID, alias, AAD, storage schema или wire format без явного решения
+владельца. Переход Garmin storage после `0.1.0` — согласованное исключение: migration
+не реализуется, требуется чистая переустановка. При несовместимом изменении wire
+format увеличить protocol version и одновременно обновить обе платформы и документацию.
 
 ## Структура и toolchain
 
@@ -29,7 +32,7 @@
 - `garmin/`: Monkey C watch app и glance в одном package.
 - `protocol/schema.md`: канонический wire format.
 - `docs/BUILDING.md`: пользовательские команды сборки и sideload.
-- Android: AGP 9.2.1, Gradle 9.4.1, compile/target SDK 37, min SDK 28.
+- Android: AGP 9.2.1, Gradle 9.6.0, compile/target SDK 37, min SDK 28.
 - Garmin: Connect IQ SDK 9.2.0, Companion SDK 2.4.0.
 
 UI и persistence намеренно используют стандартные platform-компоненты. Не вводить Compose, Room, KSP/kapt или новый DI/framework без необходимости и явного обоснования.
@@ -70,6 +73,12 @@ QR импорт:
 
 - `Application.Storage` содержит plaintext — это принятое ограничение. Не создавать видимость защищённого хранения.
 - Snapshot принимается только через staging. До переключения active storage проверить protocol version, transfer ID, последовательность chunks, count, revision и SHA-256 snapshot hash.
+- Active snapshot хранит entries/revision/last transfer в одном dictionary под
+  `active_snapshot` и переключается одним `Storage.setValue`; staging целиком хранится
+  под `staging_snapshot`. Не возвращать раздельные metadata keys.
+- Staging очищается после terminal error, успешного commit, нового валидного BEGIN
+  и команды очистки. Receiver принимает максимум 100 записей, имя до 128 символов и
+  secret 1–1024 байта с элементами 0–255.
 - Старые revision отклоняются; повторный commit последнего transfer должен быть идемпотентным.
 - После commit сохранить favorite, если запись существует; иначе выбрать первую запись или очистить favorite.
 - Команда очистки `d` удаляет active, staging, favorite, revision и last transfer,
@@ -85,8 +94,8 @@ Glance:
 - Glance читает только favorite и вычисляет код при `onUpdate`. Garmin OS управляет частотой обновления; не обещать посекундное обновление glance.
 - `TotpStore` и `TotpCore` используются одновременно из glance и background sync, поэтому классы должны сохранять multi-slice annotation `(:glance, :background)`. Одна `:glance` приводит на устройстве к `Class not available to 'Background'`.
 - Односимвольные значения Garmin Mobile SDK могут приходить в Monkey C как динамический `String`, `Char` или `Symbol`. Типы сообщений нужно нормализовать через `syncMessageType`, а строки протокола, transfer ID и checksum сравнивать по значению через `.equals()`/`totpValuesEqual`; прямое сравнение ломает обмен ошибками `Unknown message`, `Wrong transfer` или `Checksum mismatch`.
-- Текущая build statistics: glance code 4515 bytes/static data 2032 bytes;
-  background code 4193 bytes/static data 1967 bytes. После изменения glance или
+- Текущая build statistics: glance code 5699 bytes/static data 2146 bytes;
+  background code 5201 bytes/static data 2074 bytes. После изменения glance или
   background sync повторить build stats и аппаратную проверку heap.
 
 TOTP:
@@ -99,6 +108,8 @@ TOTP:
 
 - Android отправляет полный snapshot: begin, один chunk на запись, commit; часы отвечают ACK только после валидации и переключения active storage.
 - Android показывает успех только после ACK совпадающей revision.
+- Любой ACK/error принимается только при наличии точного active transfer ID;
+  ответы без `x` больше не поддерживаются.
 - Проект рассчитан на одни часы: Android не хранит отдельную target-watch привязку и
   использует первое подключённое Garmin-устройство. Очистка не должна требовать
   предварительной синхронизации; входящие ответы принимаются только от active device.

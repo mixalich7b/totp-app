@@ -16,11 +16,11 @@ data class ImportPlan(
 
 object ImportPlanner {
     fun duplicateCount(existing: List<TotpEntry>, imported: List<TotpEntry>): Int {
-        val known = existing.mapTo(mutableListOf()) { it.duplicateKey() }
+        val known = existing.mapTo(mutableSetOf()) { it.duplicateKey() }
         var count = 0
         imported.forEach { entry ->
             val key = entry.duplicateKey()
-            if (known.contains(key)) count++
+            if (key in known) count++
             known += key
         }
         return count
@@ -32,12 +32,16 @@ object ImportPlanner {
         duplicatePolicy: ImportDuplicatePolicy,
     ): ImportPlan {
         val working = existing.toMutableList()
+        val firstIndexByKey = mutableMapOf<DuplicateKey, Int>()
+        working.forEachIndexed { index, entry -> firstIndexByKey.putIfAbsent(entry.duplicateKey(), index) }
         val writes = linkedMapOf<String, TotpEntry>()
         var duplicates = 0
 
         imported.forEach { entry ->
-            val duplicateIndex = working.indexOfFirst { it.duplicateKey() == entry.duplicateKey() }
-            if (duplicateIndex < 0) {
+            val key = entry.duplicateKey()
+            val duplicateIndex = firstIndexByKey[key]
+            if (duplicateIndex == null) {
+                firstIndexByKey[key] = working.size
                 working += entry
                 writes[entry.id] = entry
                 return@forEach
@@ -65,7 +69,7 @@ object ImportPlanner {
     private fun TotpEntry.duplicateKey() = DuplicateKey(
         normalizedText(issuer),
         normalizedText(accountName),
-        secret.toList(),
+        SecretBytes(secret),
         algorithm,
         digits,
         periodSeconds,
@@ -78,9 +82,16 @@ object ImportPlanner {
     private data class DuplicateKey(
         val issuer: String,
         val accountName: String,
-        val secret: List<Byte>,
+        val secret: SecretBytes,
         val algorithm: TotpAlgorithm,
         val digits: Int,
         val periodSeconds: Int,
     )
+
+    private class SecretBytes(private val value: ByteArray) {
+        override fun equals(other: Any?): Boolean =
+            other is SecretBytes && value.contentEquals(other.value)
+
+        override fun hashCode(): Int = value.contentHashCode()
+    }
 }
