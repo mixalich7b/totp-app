@@ -29,6 +29,7 @@ class MainActivity : Activity() {
     private lateinit var syncManager: GarminSyncManager
     private lateinit var adapter: EntryAdapter
     private lateinit var statusView: TextView
+    private lateinit var syncButton: Button
     private var entries = mutableListOf<TotpEntry>()
     private var storageResetDialogVisible = false
     private var pendingImportEntries: List<TotpEntry>? = null
@@ -54,7 +55,18 @@ class MainActivity : Activity() {
         title = getString(R.string.app_name)
         repository = SecureEntryRepository(this)
         setContentView(buildContent())
-        syncManager = GarminSyncManager(this) { text -> runOnUiThread { statusView.text = text } }
+        syncManager = GarminSyncManager(
+            this,
+            statusChanged = { text -> runOnUiThread { statusView.text = text } },
+            cancellationChanged = { canCancel ->
+                runOnUiThread {
+                    if (syncManager.isSyncing()) {
+                        syncButton.isEnabled = canCancel
+                        if (!canCancel) syncButton.setText(R.string.action_finishing_sync)
+                    }
+                }
+            },
+        )
         reload()
     }
 
@@ -107,10 +119,13 @@ class MainActivity : Activity() {
             text = getString(R.string.qr)
             setOnClickListener { scanQr() }
         }, weighted())
-        buttons.addView(Button(this).apply {
+        syncButton = Button(this).apply {
             text = getString(R.string.action_sync)
-            setOnClickListener { synchronize() }
-        }, weighted())
+            setOnClickListener {
+                if (syncManager.isSyncing()) syncManager.cancel() else synchronize()
+            }
+        }
+        buttons.addView(syncButton, weighted())
         root.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = buttonGapPx
         })
@@ -390,9 +405,23 @@ class MainActivity : Activity() {
     }
 
     private fun synchronize() {
+        syncButton.setText(R.string.action_cancel_sync)
         syncManager.sync(entries, repository.revision()) { result ->
             runOnUiThread {
-                result.onSuccess { statusView.text = it }.onFailure(::showError)
+                result.onSuccess {
+                    syncButton.isEnabled = true
+                    syncButton.setText(R.string.action_sync)
+                    statusView.text = it
+                }.onFailure { error ->
+                    syncButton.isEnabled = true
+                    if (error is SyncCancelledException) {
+                        syncButton.setText(R.string.action_sync)
+                        statusView.text = error.userMessage()
+                    } else {
+                        syncButton.setText(R.string.action_retry_sync)
+                        showError(error)
+                    }
+                }
             }
         }
     }
