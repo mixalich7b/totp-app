@@ -10,6 +10,7 @@
     <string name="action_cancel_sync">Отменить</string>
     <string name="action_finishing_sync">Завершение</string>
     <string name="action_retry_sync">Повторить</string>
+    <string name="action_watch_menu">⋮</string>
     <string name="action_cancel">Отмена</string>
     <string name="action_save">Сохранить</string>
     <string name="action_import">Импортировать</string>
@@ -45,6 +46,7 @@
     <string name="sync_sdk_shutdown">Garmin SDK остановлен</string>
     <string name="sync_sdk_not_ready">Garmin Connect ещё не готов</string>
     <string name="sync_no_device">Нет подключённых часов Garmin</string>
+    <string name="sync_remembered_device_offline">Сохранённые часы сейчас не подключены к Garmin Connect</string>
     <string name="sync_already_running">Синхронизация уже выполняется</string>
     <string name="sync_transfering_entries">Передача %1$d записей…</string>
     <string name="sync_preparing">Подготовка передачи…</string>
@@ -74,6 +76,22 @@
     <string name="sync_watch_unsupported_entry">Часы не поддерживают параметры одной из записей</string>
     <string name="sync_watch_checksum">Проверка целостности на часах не пройдена; повторите синхронизацию</string>
     <string name="sync_watch_rejected">Часы отклонили синхронизацию по неизвестной причине</string>
+    <string name="watch_management">Управление часами</string>
+    <string name="watch_management_for">Управление: %1$s</string>
+    <string name="watch_unknown_name">Garmin без названия</string>
+    <string name="watch_not_remembered">Часы ещё не сохранены</string>
+    <string name="watch_not_remembered_explanation">Сначала выполните успешную синхронизацию. После подтверждения ACK приложение запомнит выбранные часы.</string>
+    <string name="dialog_forget_watch">Забыть часы?</string>
+    <string name="message_forget_watch">Android забудет локальную привязку к «%1$s». Pairing в Garmin Connect и данные на часах не изменятся.</string>
+    <string name="action_forget_watch">Забыть</string>
+    <string name="watch_forget_complete">Часы «%1$s» забыты локально</string>
+    <string name="dialog_clear_watch">Очистить данные часов?</string>
+    <string name="message_clear_watch">Все TOTP-записи и избранный код будут удалены с «%1$s». Записи на Android сохранятся и вернутся на часы при следующей синхронизации.</string>
+    <string name="action_clear_watch">Очистить часы</string>
+    <string name="watch_clear_sending">Отправка команды очистки часов…</string>
+    <string name="watch_clear_waiting">Команда передана; ожидается подтверждение часов (до 30 с)</string>
+    <string name="watch_clear_timeout">Часы не подтвердили очистку за 30 секунд</string>
+    <string name="watch_clear_complete">Данные TOTP на часах удалены</string>
     <string name="field_name">Название</string>
     <string name="field_issuer_optional">Issuer (необязательно)</string>
     <string name="field_account_optional">Аккаунт (необязательно)</string>
@@ -93,5 +111,9 @@
     <string-array name="totp_digits">
         <item>6 цифр</item>
         <item>8 цифр</item>
+    </string-array>
+    <string-array name="watch_management_actions">
+        <item>Забыть часы</item>
+        <item>Очистить данные часов</item>
     </string-array>
 </resources>

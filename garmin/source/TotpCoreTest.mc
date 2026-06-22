@@ -49,7 +49,32 @@ function testSnapshotHash(logger as Test.Logger) as Boolean {
 function testSyncMessageTypeRepresentations(logger as Test.Logger) as Boolean {
     return syncMessageType("b").equals("b")
         && syncMessageType('c').equals("c")
-        && syncMessageType(:m).equals("m");
+        && syncMessageType(:m).equals("m")
+        && syncMessageType('d').equals("d");
+}
+
+(:test)
+function testProtocolClearRemovesActiveStagingAndMetadata(logger as Test.Logger) as Boolean {
+    var keys = ["active", "revision", "favorite", "staging", "staging_id", "staging_count",
+        "staging_revision", "staging_hash", "last_transfer"];
+    Application.Storage.setValue("active", [{"i" => "secret-entry", "s" => [1, 2, 3]}]);
+    Application.Storage.setValue("revision", 12);
+    Application.Storage.setValue("favorite", "secret-entry");
+    Application.Storage.setValue("staging", [{"i" => "staged", "s" => [4, 5, 6]}]);
+    Application.Storage.setValue("staging_id", "tx-staged");
+    Application.Storage.setValue("staging_count", 1);
+    Application.Storage.setValue("staging_revision", 13);
+    Application.Storage.setValue("staging_hash", "hash");
+    Application.Storage.setValue("last_transfer", "tx-active");
+
+    (new TotpStore()).clearAll();
+
+    for (var index = 0; index < keys.size(); index++) {
+        if (Application.Storage.getValue(keys[index]) != null) {
+            return false;
+        }
+    }
+    return true;
 }
 
 (:test)

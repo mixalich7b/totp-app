@@ -25,6 +25,7 @@ class GarminSyncErrorMapperTest {
     @Test
     fun `watch errors map to safe categories without reflecting their text`() {
         assertEquals(R.string.sync_watch_incompatible, watchErrorMessageRes("Unsupported protocol"))
+        assertEquals(R.string.sync_watch_incompatible, watchErrorMessageRes("Invalid clear"))
         assertEquals(R.string.sync_watch_newer_revision, watchErrorMessageRes("Stale revision"))
         assertEquals(R.string.sync_watch_incomplete, watchErrorMessageRes("Wrong sequence"))
         assertEquals(R.string.sync_watch_unsupported_entry, watchErrorMessageRes("Unsupported TOTP"))
@@ -33,5 +34,28 @@ class GarminSyncErrorMapperTest {
         assertEquals(R.string.sync_watch_rejected, watchErrorMessageRes(null))
         assertEquals("checksum", watchErrorLogCategory("Checksum mismatch"))
         assertEquals("unknown", watchErrorLogCategory("secret-like unknown text"))
+    }
+
+    @Test
+    fun `first connected watch is selected when no watch is remembered`() {
+        assertEquals(10L, selectTargetDeviceId(listOf(10L, 20L), null))
+        assertEquals(null, selectTargetDeviceId(emptyList(), null))
+    }
+
+    @Test
+    fun `remembered watch is selected regardless of connected order`() {
+        assertEquals(20L, selectTargetDeviceId(listOf(10L, 20L), 20L))
+    }
+
+    @Test
+    fun `another connected watch never replaces an unavailable remembered watch`() {
+        assertEquals(null, selectTargetDeviceId(listOf(10L), 20L))
+    }
+
+    @Test
+    fun `response transfer is correlated while legacy response without id remains compatible`() {
+        assertEquals(true, responseMatchesTransfer("tx-active", "tx-active"))
+        assertEquals(false, responseMatchesTransfer("tx-old", "tx-active"))
+        assertEquals(true, responseMatchesTransfer(null, "tx-active"))
     }
 }

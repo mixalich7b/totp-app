@@ -86,10 +86,21 @@ class MainActivity : Activity() {
             )
             insets
         }
-        root.addView(TextView(this).apply {
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        titleRow.addView(TextView(this).apply {
             text = getString(R.string.app_name)
             textSize = titleTextSizePx
-            setPadding(0, 0, 0, contentGapPx)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        titleRow.addView(Button(this).apply {
+            text = getString(R.string.action_watch_menu)
+            contentDescription = getString(R.string.watch_management)
+            setOnClickListener { showWatchManagementDialog() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(titleRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = contentGapPx
         })
         statusView = TextView(this).apply {
             text = getString(R.string.status_initializing)
@@ -424,6 +435,57 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun showWatchManagementDialog() {
+        val watchName = syncManager.rememberedWatchName()
+        if (watchName == null) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.watch_management)
+                .setMessage(R.string.watch_not_remembered_explanation)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.watch_management_for, watchName))
+            .setItems(R.array.watch_management_actions) { _, index ->
+                if (index == 0) confirmForgetWatch(watchName) else confirmClearWatch(watchName)
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun confirmForgetWatch(watchName: String) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_forget_watch)
+            .setMessage(getString(R.string.message_forget_watch, watchName))
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.action_forget_watch) { _, _ ->
+                syncManager.forgetWatch()
+                    .onSuccess { statusView.text = it }
+                    .onFailure(::showError)
+            }
+            .show()
+    }
+
+    private fun confirmClearWatch(watchName: String) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_clear_watch)
+            .setMessage(getString(R.string.message_clear_watch, watchName))
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.action_clear_watch) { _, _ ->
+                syncButton.isEnabled = false
+                syncButton.setText(R.string.action_finishing_sync)
+                syncManager.clearWatch { result ->
+                    runOnUiThread {
+                        syncButton.isEnabled = true
+                        syncButton.setText(R.string.action_sync)
+                        result.onSuccess { statusView.text = it }.onFailure(::showError)
+                    }
+                }
+            }
+            .show()
     }
 
     private fun field(hintText: String) = EditText(this).apply {

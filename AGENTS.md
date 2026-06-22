@@ -72,6 +72,9 @@ QR импорт:
 - Snapshot принимается только через staging. До переключения active storage проверить protocol version, transfer ID, последовательность chunks, count, revision и SHA-256 snapshot hash.
 - Старые revision отклоняются; повторный commit последнего transfer должен быть идемпотентным.
 - После commit сохранить favorite, если запись существует; иначе выбрать первую запись или очистить favorite.
+- Команда очистки `d` удаляет active, staging, favorite, revision и last transfer,
+  отвечает `z` только после удаления и не меняет Android repository. Это логическое
+  удаление, не secure erase flash.
 - Не логировать secrets, codes, checksum, имена записей и message dictionaries. Для диагностики транспорта допустимы только тип сообщения, transfer ID, revision, число записей, sequence, статусы и безопасные тексты ошибок.
 
 Glance:
@@ -82,7 +85,9 @@ Glance:
 - Glance читает только favorite и вычисляет код при `onUpdate`. Garmin OS управляет частотой обновления; не обещать посекундное обновление glance.
 - `TotpStore` и `TotpCore` используются одновременно из glance и background sync, поэтому классы должны сохранять multi-slice annotation `(:glance, :background)`. Одна `:glance` приводит на устройстве к `Class not available to 'Background'`.
 - Односимвольные значения Garmin Mobile SDK могут приходить в Monkey C как динамический `String`, `Char` или `Symbol`. Типы сообщений нужно нормализовать через `syncMessageType`, а строки протокола, transfer ID и checksum сравнивать по значению через `.equals()`/`totpValuesEqual`; прямое сравнение ломает обмен ошибками `Unknown message`, `Wrong transfer` или `Checksum mismatch`.
-- Текущая build statistics: glance code 3937 bytes/static data 1948 bytes; background code 3717 bytes/static data 1883 bytes. После изменения glance или background sync повторить build stats и аппаратную проверку heap.
+- Текущая build statistics: glance code 4515 bytes/static data 2032 bytes;
+  background code 4193 bytes/static data 1967 bytes. После изменения glance или
+  background sync повторить build stats и аппаратную проверку heap.
 
 TOTP:
 
@@ -94,6 +99,10 @@ TOTP:
 
 - Android отправляет полный snapshot: begin, один chunk на запись, commit; часы отвечают ACK только после валидации и переключения active storage.
 - Android показывает успех только после ACK совпадающей revision.
+- После успешного snapshot ACK Android запоминает только ID и имя target watch в
+  preferences. При недоступной сохранённой цели запрещено молча выбирать другое
+  подключённое устройство; входящие ответы принимаются только от active device.
+  `Забыть часы` очищает только эти preferences.
 - Каждый асинхронный send callback и timeout должен проверять активный transfer ID.
   Иначе позднее событие отменённой/истёкшей передачи может повредить следующий retry.
 - Отмена допустима только до отправки commit. На commit/ACK UI блокирует отмену,

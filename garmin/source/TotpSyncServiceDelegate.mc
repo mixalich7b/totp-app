@@ -18,6 +18,9 @@ function syncMessageType(rawType) {
     if (value.equals("m") || value.equals(":m")) {
         return "m";
     }
+    if (value.equals("d") || value.equals(":d")) {
+        return "d";
+    }
     return value;
 }
 
@@ -36,6 +39,9 @@ class TotpSyncServiceDelegate extends System.ServiceDelegate {
             System.println("TOTP sync message accepted without response type=" + (messageType == null ? "missing" : messageType) + " transfer=" + (transferId == null ? "missing" : transferId));
             Background.exit(null);
             return;
+        }
+        if (transferId != null) {
+            response["x"] = transferId;
         }
         var responseType = syncMessageType(response["t"]);
         System.println("TOTP sync transmitting response type=" + responseType + " transfer=" + (transferId == null ? "missing" : transferId));
@@ -65,6 +71,14 @@ class TotpSyncServiceDelegate extends System.ServiceDelegate {
                 return {"t" => "a", "r" => revision};
             }
             error = revision;
+        } else if (messageType.equals("d")) {
+            if (message["v"] != 1 || transferId == null) {
+                error = "Invalid clear";
+            } else {
+                System.println("TOTP sync clearing watch data transfer=" + transferId);
+                store.clearAll();
+                return {"t" => "z", "x" => transferId};
+            }
         } else {
             error = "Unknown message type: " + messageType;
         }

@@ -8,6 +8,12 @@ Garmin `Application.Storage` и payload Garmin Mobile SDK не имеют доп
 
 Screenshot/recents и Android backup отключены. Секреты не должны попадать в logs, clipboard, exceptions или saved state. Удаление не гарантирует физического стирания flash ни на Android, ни на Garmin.
 
+Подтверждаемая команда очистки часов удаляет active snapshot, favorite,
+незавершённый staging и служебную revision из `Application.Storage`. Это логическое
+удаление через Connect IQ API, а не гарантированный secure erase flash. Локальная
+операция «Забыть часы» удаляет только сохранённые Android идентификатор и имя цели;
+она не очищает часы и не управляет pairing в Garmin Connect.
+
 При потере Android Keystore key локальные данные не восстанавливаются. Приложение не
 заменяет потерянный ключ автоматически: после явного предупреждения пользователь может
 безвозвратно удалить локальную БД и ключ, а затем импортировать записи заново. Этот сброс

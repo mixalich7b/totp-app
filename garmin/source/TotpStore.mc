@@ -47,6 +47,15 @@ class TotpStore {
     }
 
     (:background)
+    public function clearAll() {
+        clearStaging();
+        Application.Storage.deleteValue(ACTIVE);
+        Application.Storage.deleteValue(FAVORITE);
+        Application.Storage.deleteValue(REVISION);
+        Application.Storage.deleteValue(LAST_TRANSFER);
+    }
+
+    (:background)
     public function begin(message) {
         if (message["v"] != 1) {
             return "Unsupported protocol";
