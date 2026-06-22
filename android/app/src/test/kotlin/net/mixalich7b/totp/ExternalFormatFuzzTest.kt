@@ -93,7 +93,7 @@ class ExternalFormatFuzzTest {
     private fun assertMigrationOutcome(caseNumber: Int, uri: String) {
         try {
             val batch = MigrationParser.parse(uri)
-            assertTrue("case=$caseNumber", batch.entries.isNotEmpty())
+            assertTrue("case=$caseNumber", batch.entries.isNotEmpty() || batch.issues.isNotEmpty())
             assertTrue("case=$caseNumber", batch.batchSize in 1..100)
             assertTrue("case=$caseNumber", batch.batchIndex in 0 until batch.batchSize)
             batch.entries.forEach { entry ->

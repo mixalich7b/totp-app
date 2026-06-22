@@ -249,10 +249,7 @@ class MainActivity : Activity() {
             } else if (raw.startsWith("otpauth-migration://", true)) {
                 val batch = MigrationParser.parse(raw)
                 when (val result = migrationCollector.add(batch)) {
-                    is MigrationBatchResult.Complete -> previewImport(
-                        result.entries,
-                        R.string.dialog_import_google_authenticator,
-                    )
+                    is MigrationBatchResult.Complete -> handleMigrationResult(result)
                     is MigrationBatchResult.Pending -> {
                         statusView.text = getString(R.string.batch_status, result.received, result.total)
                     }
@@ -265,9 +262,49 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun handleMigrationResult(result: MigrationBatchResult.Complete) {
+        if (result.issues.isEmpty()) {
+            previewImport(result.entries, R.string.dialog_import_google_authenticator)
+            return
+        }
+
+        clearPendingImport()
+        pendingImportEntries = result.entries
+        val counts = result.issues.groupingBy { it }.eachCount()
+        val details = MigrationEntryIssue.entries.mapNotNull { issue ->
+            counts[issue]?.let { count -> getString(issue.messageRes(), count) }
+        }.joinToString("\n")
+        val message = getString(R.string.import_issues_summary, result.issues.size, details)
+        val builder = AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_import_issues)
+            .setMessage(message)
+            .setNegativeButton(R.string.action_cancel) { _, _ -> clearPendingImport() }
+            .setOnCancelListener { clearPendingImport() }
+
+        if (result.entries.isEmpty()) {
+            builder.setPositiveButton(android.R.string.ok) { _, _ -> clearPendingImport() }
+        } else {
+            builder.setPositiveButton(R.string.action_continue) { _, _ ->
+                showImportPreview(result.entries, R.string.dialog_import_google_authenticator)
+            }
+        }
+        builder.show()
+    }
+
+    private fun MigrationEntryIssue.messageRes() = when (this) {
+        MigrationEntryIssue.HOTP -> R.string.import_issue_hotp
+        MigrationEntryIssue.UNSUPPORTED_ALGORITHM -> R.string.import_issue_algorithm
+        MigrationEntryIssue.UNSUPPORTED_DIGITS -> R.string.import_issue_digits
+        MigrationEntryIssue.MALFORMED -> R.string.import_issue_malformed
+    }
+
     private fun previewImport(imported: List<TotpEntry>, titleRes: Int) {
         clearPendingImport()
         pendingImportEntries = imported
+        showImportPreview(imported, titleRes)
+    }
+
+    private fun showImportPreview(imported: List<TotpEntry>, titleRes: Int) {
         val selected = BooleanArray(imported.size) { true }
         val previewItems = imported.map { entry ->
             getString(

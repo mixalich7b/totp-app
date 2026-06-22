@@ -7,10 +7,18 @@ import java.util.Base64
 
 data class MigrationBatch(
     val entries: List<TotpEntry>,
+    val issues: List<MigrationEntryIssue>,
     val batchSize: Int,
     val batchIndex: Int,
     val batchId: Long,
 )
+
+enum class MigrationEntryIssue {
+    HOTP,
+    UNSUPPORTED_ALGORITHM,
+    UNSUPPORTED_DIGITS,
+    MALFORMED,
+}
 
 object MigrationParser {
     fun parse(raw: String): MigrationBatch {
@@ -24,6 +32,7 @@ object MigrationParser {
         try {
             val root = ProtoReader(payload)
             val entries = mutableListOf<TotpEntry>()
+            val issues = mutableListOf<MigrationEntryIssue>()
             try {
                 var version = 0L
                 var batchSize = 1
@@ -36,7 +45,13 @@ object MigrationParser {
                             tag.requireWireType(2)
                             val entryBytes = root.readBytes()
                             try {
-                                entries += parseEntry(entryBytes)
+                                try {
+                                    entries += parseEntry(entryBytes)
+                                } catch (error: UnsupportedMigrationEntryException) {
+                                    issues += error.issue
+                                } catch (_: IllegalArgumentException) {
+                                    issues += MigrationEntryIssue.MALFORMED
+                                }
                             } finally {
                                 entryBytes.fill(0)
                             }
@@ -61,11 +76,11 @@ object MigrationParser {
                     }
                 }
                 require(version in 0..2) { "Неподдерживаемая версия migration payload: $version" }
-                require(entries.isNotEmpty()) { "В QR нет поддерживаемых TOTP записей" }
+                require(entries.isNotEmpty() || issues.isNotEmpty()) { "В QR нет TOTP записей" }
                 require(batchSize in 1..100 && batchIndex in 0 until batchSize) {
                     "Некорректный migration batch"
                 }
-                return MigrationBatch(entries, batchSize, batchIndex, batchId)
+                return MigrationBatch(entries, issues, batchSize, batchIndex, batchId)
             } catch (error: Exception) {
                 entries.forEach { it.secret.fill(0) }
                 throw error
@@ -115,7 +130,8 @@ object MigrationParser {
                     else -> reader.skip(tag.wireType)
                 }
             }
-            require(type == 0 || type == 2) { "HOTP не поддерживается" }
+            if (type == 1) unsupported(MigrationEntryIssue.HOTP)
+            if (type != 0 && type != 2) unsupported(MigrationEntryIssue.MALFORMED)
             val account = name.substringAfter(':', name).trim()
             val effectiveIssuer = issuer.ifBlank { name.substringBefore(':', "").trim() }
             return TotpEntry(
@@ -124,11 +140,15 @@ object MigrationParser {
                 issuer = effectiveIssuer,
                 accountName = account,
                 secret = secret,
-                algorithm = TotpAlgorithm.fromWire(if (algorithm == 0) 1 else algorithm),
+                algorithm = when (algorithm) {
+                    0, 1 -> TotpAlgorithm.SHA1
+                    2 -> TotpAlgorithm.SHA256
+                    else -> unsupported(MigrationEntryIssue.UNSUPPORTED_ALGORITHM)
+                },
                 digits = when (digits) {
                     0, 1 -> 6
                     2 -> 8
-                    else -> throw IllegalArgumentException("Неподдерживаемое число цифр")
+                    else -> unsupported(MigrationEntryIssue.UNSUPPORTED_DIGITS)
                 },
             )
         } catch (error: Exception) {
@@ -136,6 +156,12 @@ object MigrationParser {
             throw error
         }
     }
+
+    private fun unsupported(issue: MigrationEntryIssue): Nothing =
+        throw UnsupportedMigrationEntryException(issue)
+
+    private class UnsupportedMigrationEntryException(val issue: MigrationEntryIssue) :
+        IllegalArgumentException()
 
     private fun queryParameter(query: String, expectedName: String): String? = query.split('&')
         .asSequence()

@@ -2,7 +2,10 @@ package net.mixalich7b.totp
 
 sealed interface MigrationBatchResult {
     data class Pending(val received: Int, val total: Int) : MigrationBatchResult
-    data class Complete(val entries: List<TotpEntry>) : MigrationBatchResult
+    data class Complete(
+        val entries: List<TotpEntry>,
+        val issues: List<MigrationEntryIssue>,
+    ) : MigrationBatchResult
 }
 
 class MigrationBatchCollector {
@@ -13,7 +16,7 @@ class MigrationBatchCollector {
     fun add(batch: MigrationBatch): MigrationBatchResult {
         if (batch.batchSize == 1) {
             clear()
-            return MigrationBatchResult.Complete(batch.entries)
+            return MigrationBatchResult.Complete(batch.entries, batch.issues)
         }
         if (batchId != batch.batchId || batchSize != batch.batchSize) {
             clear()
@@ -27,10 +30,11 @@ class MigrationBatchCollector {
         }
 
         val entries = (0 until batchSize).flatMap { parts.getValue(it).entries }
+        val issues = (0 until batchSize).flatMap { parts.getValue(it).issues }
         parts.clear()
         batchId = null
         batchSize = 0
-        return MigrationBatchResult.Complete(entries)
+        return MigrationBatchResult.Complete(entries, issues)
     }
 
     fun clear() {

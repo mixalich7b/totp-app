@@ -53,6 +53,9 @@ QR импорт:
 - Одиночный формат: только `otpauth://totp`.
 - Google Authenticator migration поддерживает payload versions 1/2 и multi-batch по `batchId`, `batchIndex`, `batchSize`; неизвестные protobuf-поля пропускаются по wire type.
 - HOTP, SHA-512 и MD5 отклоняются без преобразования. Поддерживаются SHA-1/SHA-256, 6/8 digits, period 5–300.
+- Ошибка отдельной migration-записи не должна отменять корректные записи из той же
+  пачки. В отчёте допустимы только безопасные категории и количества, без имён и
+  содержимого записей.
 - Декодированный secret должен содержать 1–1024 байта. Не увеличивать предел без
   одновременной оценки Android encrypted codec, Garmin storage/mailbox и памяти.
 - Google Code Scanner зависит от Google Play services и не требует CAMERA permission. Не добавлять permission без смены scanner implementation.

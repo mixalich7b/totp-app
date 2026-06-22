@@ -22,6 +22,12 @@
     <string name="dialog_new_totp">Новый TOTP</string>
     <string name="dialog_import_totp">Импортировать TOTP?</string>
     <string name="dialog_import_google_authenticator">Импорт Google Authenticator</string>
+    <string name="dialog_import_issues">Не все записи поддерживаются</string>
+    <string name="import_issues_summary">Пропущено записей: %1$d\n\n%2$s</string>
+    <string name="import_issue_hotp">HOTP: %1$d</string>
+    <string name="import_issue_algorithm">Неподдерживаемый алгоритм: %1$d</string>
+    <string name="import_issue_digits">Неподдерживаемое число цифр: %1$d</string>
+    <string name="import_issue_malformed">Повреждённые записи: %1$d</string>
     <string name="dialog_import_duplicates">Обнаружены дубликаты</string>
     <string name="import_duplicates_found">Совпадающих записей: %1$d. Выбранное действие будет применено ко всем дубликатам.</string>
     <string name="import_nothing_selected">Импорт отменён: записи не выбраны</string>

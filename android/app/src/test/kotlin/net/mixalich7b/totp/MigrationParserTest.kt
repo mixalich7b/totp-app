@@ -78,14 +78,64 @@ class MigrationParserTest {
     }
 
     @Test
-    fun `rejects HOTP unsupported versions and invalid batches`() {
+    fun `keeps valid entries and reports unsupported or damaged entries`() {
         val hotp = protoMessage(
             bytesField(1, byteArrayOf(1)),
             stringField(2, "hotp"),
             varintField(6, 1),
         )
+        val unsupportedAlgorithm = protoMessage(
+            bytesField(1, byteArrayOf(2)),
+            stringField(2, "sha512"),
+            varintField(4, 3),
+            varintField(6, 2),
+        )
+        val unsupportedDigits = protoMessage(
+            bytesField(1, byteArrayOf(3)),
+            stringField(2, "digits"),
+            varintField(5, 3),
+            varintField(6, 2),
+        )
+        val root = protoMessage(
+            bytesField(1, basicEntry("valid")),
+            bytesField(1, hotp),
+            bytesField(1, unsupportedAlgorithm),
+            bytesField(1, unsupportedDigits),
+            bytesField(1, byteArrayOf(0x0a, 0x05, 0x01)),
+            varintField(2, 2),
+        )
+
+        val batch = MigrationParser.parse(migrationUri(root))
+
+        assertEquals(listOf("valid"), batch.entries.map(TotpEntry::displayName))
+        assertEquals(
+            listOf(
+                MigrationEntryIssue.HOTP,
+                MigrationEntryIssue.UNSUPPORTED_ALGORITHM,
+                MigrationEntryIssue.UNSUPPORTED_DIGITS,
+                MigrationEntryIssue.MALFORMED,
+            ),
+            batch.issues,
+        )
+    }
+
+    @Test
+    fun `returns report when migration contains no supported entries`() {
+        val hotp = protoMessage(
+            bytesField(1, byteArrayOf(1)),
+            stringField(2, "hotp"),
+            varintField(6, 1),
+        )
+
+        val batch = MigrationParser.parse(migrationUri(payload(hotp)))
+
+        assertEquals(emptyList<TotpEntry>(), batch.entries)
+        assertEquals(listOf(MigrationEntryIssue.HOTP), batch.issues)
+    }
+
+    @Test
+    fun `rejects unsupported versions and invalid batches`() {
         listOf(
-            migrationUri(payload(hotp)),
             migrationUri(payload(basicEntry("future"), version = 3)),
             migrationUri(payload(basicEntry("bad batch"), batchSize = 2, batchIndex = 2)),
         ).forEach { uri ->
