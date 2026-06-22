@@ -15,6 +15,21 @@ internal class SyncCancelledException(message: String) : Exception(message)
 
 private enum class PendingOperation { SNAPSHOT, CLEAR_WATCH }
 
+private object SyncLog {
+    fun i(tag: String, message: String) {
+        if (BuildConfig.DEBUG) Log.i(tag, message)
+    }
+
+    fun w(tag: String, message: String) {
+        if (BuildConfig.DEBUG) Log.w(tag, message)
+    }
+
+    fun e(tag: String, message: String, error: Throwable? = null) {
+        if (!BuildConfig.DEBUG) return
+        if (error == null) Log.e(tag, message) else Log.e(tag, message, error)
+    }
+}
+
 class GarminSyncManager(
     context: Context,
     private val statusChanged: (String) -> Unit,
@@ -45,45 +60,45 @@ class GarminSyncManager(
             status: ConnectIQ.IQMessageStatus,
         ) {
             if (!isActiveDevice(device.deviceIdentifier)) {
-                Log.i(TAG, "Ignoring response from inactive device")
+                SyncLog.i(TAG, "Ignoring response from inactive device")
                 return
             }
-            Log.i(TAG, "Receive callback: status=$status, messages=${messages.size}, transfer=${pendingTransferId ?: "none"}")
+            SyncLog.i(TAG, "Receive callback: status=$status, messages=${messages.size}, transfer=${pendingTransferId ?: "none"}")
             if (status != ConnectIQ.IQMessageStatus.SUCCESS) {
-                Log.w(TAG, "Receive failed: status=$status, transfer=${pendingTransferId ?: "none"}")
+                SyncLog.w(TAG, "Receive failed: status=$status, transfer=${pendingTransferId ?: "none"}")
                 finish(Result.failure(syncFailure(R.string.sync_receive_failed, messageStatusText(status))))
                 return
             }
             messages.filterIsInstance<Map<*, *>>().forEach { message ->
                 val type = normalizeMessageType(message["t"])
                 val responseTransferId = message["x"]?.toString()
-                Log.i(TAG, "Received message: type=${type ?: "missing"}, transfer=${pendingTransferId ?: "none"}")
+                SyncLog.i(TAG, "Received message: type=${type ?: "missing"}, transfer=${pendingTransferId ?: "none"}")
                 if (!responseMatchesTransfer(responseTransferId, pendingTransferId)) {
-                    Log.i(TAG, "Ignoring response from inactive transfer=$responseTransferId")
+                    SyncLog.i(TAG, "Ignoring response from inactive transfer=$responseTransferId")
                     return@forEach
                 }
                 when (type) {
                     "a" -> {
                         val revision = (message["r"] as? Number)?.toLong() ?: return@forEach
                         if (pendingOperation == PendingOperation.SNAPSHOT && revision == pendingRevision) {
-                            Log.i(TAG, "ACK accepted: revision=$revision, transfer=${pendingTransferId ?: "none"}")
+                            SyncLog.i(TAG, "ACK accepted: revision=$revision, transfer=${pendingTransferId ?: "none"}")
                             finish(Result.success(appContext.getString(R.string.sync_complete, revision)))
                         } else {
-                            Log.w(TAG, "ACK ignored: revision=$revision, expected=$pendingRevision, transfer=${pendingTransferId ?: "none"}")
+                            SyncLog.w(TAG, "ACK ignored: revision=$revision, expected=$pendingRevision, transfer=${pendingTransferId ?: "none"}")
                         }
                     }
                     "z" -> {
                         if (pendingOperation == PendingOperation.CLEAR_WATCH) {
-                            Log.i(TAG, "Watch clear ACK accepted: transfer=${pendingTransferId ?: "none"}")
+                            SyncLog.i(TAG, "Watch clear ACK accepted: transfer=${pendingTransferId ?: "none"}")
                             finish(Result.success(appContext.getString(R.string.watch_clear_complete)))
                         }
                     }
                     "e" -> {
                         val errorCode = message["m"]?.toString()
-                        Log.w(TAG, "Watch rejected transfer=${pendingTransferId ?: "none"}, category=${watchErrorLogCategory(errorCode)}")
+                        SyncLog.w(TAG, "Watch rejected transfer=${pendingTransferId ?: "none"}, category=${watchErrorLogCategory(errorCode)}")
                         finish(Result.failure(syncFailure(watchErrorMessageRes(errorCode))))
                     }
-                    else -> Log.w(TAG, "Ignoring unsupported response type=${type ?: "missing"}, transfer=${pendingTransferId ?: "none"}")
+                    else -> SyncLog.w(TAG, "Ignoring unsupported response type=${type ?: "missing"}, transfer=${pendingTransferId ?: "none"}")
                 }
             }
         }
@@ -93,18 +108,18 @@ class GarminSyncManager(
         connectIq.initialize(appContext, false, object : ConnectIQ.ConnectIQListener {
             override fun onSdkReady() {
                 ready = true
-                Log.i(TAG, "Connect IQ SDK ready")
+                SyncLog.i(TAG, "Connect IQ SDK ready")
                 statusChanged(appContext.getString(R.string.sync_sdk_ready))
             }
 
             override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus) {
-                Log.e(TAG, "Connect IQ SDK initialization failed: $status")
+                SyncLog.e(TAG, "Connect IQ SDK initialization failed: $status")
                 statusChanged(appContext.getString(sdkErrorMessageRes(status)))
             }
 
             override fun onSdkShutDown() {
                 ready = false
-                Log.i(TAG, "Connect IQ SDK shut down")
+                SyncLog.i(TAG, "Connect IQ SDK shut down")
                 statusChanged(appContext.getString(R.string.sync_sdk_shutdown))
                 finish(Result.failure(syncFailure(R.string.sync_sdk_shutdown)))
             }
@@ -113,33 +128,33 @@ class GarminSyncManager(
 
     @Synchronized
     fun sync(entries: List<TotpEntry>, revision: Long, completion: (Result<String>) -> Unit) {
-        Log.i(TAG, "Sync requested: revision=$revision, entries=${entries.size}")
+        SyncLog.i(TAG, "Sync requested: revision=$revision, entries=${entries.size}")
         if (!ready) {
-            Log.w(TAG, "Sync rejected: Connect IQ SDK is not ready")
+            SyncLog.w(TAG, "Sync rejected: Connect IQ SDK is not ready")
             completion(Result.failure(IllegalStateException(appContext.getString(R.string.sync_sdk_not_ready))))
             return
         }
         val connectedDevices = runCatching { connectIq.connectedDevices }.getOrElse {
-            Log.e(TAG, "Failed to query connected devices", it)
+            SyncLog.e(TAG, "Failed to query connected devices", it)
             completion(Result.failure(syncFailure(connectionExceptionMessageRes(it)))); return
         }
         val device = connectedDevices.firstOrNull()
         if (device == null) {
-            Log.w(TAG, "Sync rejected: no connected Garmin device")
+            SyncLog.w(TAG, "Sync rejected: no connected Garmin device")
             completion(Result.failure(syncFailure(R.string.sync_no_device)))
             return
         }
         if (pendingCompletion != null) {
-            Log.w(TAG, "Sync rejected: another transfer is active (${pendingTransferId ?: "unknown"})")
+            SyncLog.w(TAG, "Sync rejected: another transfer is active (${pendingTransferId ?: "unknown"})")
             completion(Result.failure(IllegalStateException(appContext.getString(R.string.sync_already_running))))
             return
         }
 
         try {
             connectIq.registerForAppEvents(device, watchApp, applicationListener)
-            Log.i(TAG, "Registered application event listener")
+            SyncLog.i(TAG, "Registered application event listener")
         } catch (error: Exception) {
-            Log.e(TAG, "Failed to register application event listener", error)
+            SyncLog.e(TAG, "Failed to register application event listener", error)
             completion(Result.failure(syncFailure(connectionExceptionMessageRes(error))))
             return
         }
@@ -172,13 +187,13 @@ class GarminSyncManager(
             )
         }
         messages += mapOf("t" to "m", "x" to transferId)
-        Log.i(TAG, "Transfer prepared: transfer=$transferId, revision=$revision, entries=${entries.size}, messages=${messages.size}")
+        SyncLog.i(TAG, "Transfer prepared: transfer=$transferId, revision=$revision, entries=${entries.size}, messages=${messages.size}")
         sendNext(device, messages, 0, entries.size, transferId)
     }
 
     @Synchronized
     fun clearWatch(completion: (Result<String>) -> Unit) {
-        Log.i(TAG, "Watch clear requested")
+        SyncLog.i(TAG, "Watch clear requested")
         if (!ready) {
             completion(Result.failure(syncFailure(R.string.sync_sdk_not_ready)))
             return
@@ -190,7 +205,7 @@ class GarminSyncManager(
         val device = runCatching {
             connectIq.connectedDevices.firstOrNull()
         }.getOrElse {
-            Log.e(TAG, "Failed to query connected devices for clear", it)
+            SyncLog.e(TAG, "Failed to query connected devices for clear", it)
             completion(Result.failure(syncFailure(connectionExceptionMessageRes(it)))); return
         }
         if (device == null) {
@@ -200,7 +215,7 @@ class GarminSyncManager(
         try {
             connectIq.registerForAppEvents(device, watchApp, applicationListener)
         } catch (error: Exception) {
-            Log.e(TAG, "Failed to register listener for watch clear", error)
+            SyncLog.e(TAG, "Failed to register listener for watch clear", error)
             completion(Result.failure(syncFailure(connectionExceptionMessageRes(error))))
             return
         }
@@ -219,7 +234,7 @@ class GarminSyncManager(
             connectIq.sendMessage(device, watchApp, message, object : ConnectIQ.IQSendMessageListener {
                 override fun onMessageStatus(device: IQDevice, app: IQApp, status: ConnectIQ.IQMessageStatus) {
                     if (!isActive(transferId)) return
-                    Log.i(TAG, "Watch clear send callback: status=$status, transfer=$transferId")
+                    SyncLog.i(TAG, "Watch clear send callback: status=$status, transfer=$transferId")
                     if (status == ConnectIQ.IQMessageStatus.SUCCESS) {
                         statusChanged(appContext.getString(R.string.watch_clear_waiting))
                         armTimeout()
@@ -229,7 +244,7 @@ class GarminSyncManager(
                 }
             })
         } catch (error: Exception) {
-            Log.e(TAG, "Exception while sending watch clear, transfer=$transferId", error)
+            SyncLog.e(TAG, "Exception while sending watch clear, transfer=$transferId", error)
             finish(Result.failure(syncFailure(connectionExceptionMessageRes(error))))
         }
     }
@@ -243,7 +258,7 @@ class GarminSyncManager(
     ) {
         if (!isActive(transferId)) return
         if (index >= messages.size) {
-            Log.i(TAG, "All messages sent; waiting for ACK: transfer=${pendingTransferId ?: "none"}, revision=$pendingRevision")
+            SyncLog.i(TAG, "All messages sent; waiting for ACK: transfer=${pendingTransferId ?: "none"}, revision=$pendingRevision")
             statusChanged(appContext.getString(R.string.sync_waiting_for_ack))
             armTimeout()
             return
@@ -261,26 +276,26 @@ class GarminSyncManager(
                 else -> appContext.getString(R.string.sync_transfering_entries, entryCount)
             }
         )
-        Log.i(TAG, "Sending message: type=$type, position=${index + 1}/${messages.size}, transfer=${pendingTransferId ?: "none"}")
+        SyncLog.i(TAG, "Sending message: type=$type, position=${index + 1}/${messages.size}, transfer=${pendingTransferId ?: "none"}")
         try {
             connectIq.sendMessage(device, watchApp, messages[index], object : ConnectIQ.IQSendMessageListener {
                 override fun onMessageStatus(device: IQDevice, app: IQApp, status: ConnectIQ.IQMessageStatus) {
                     if (!isActive(transferId)) {
-                        Log.i(TAG, "Ignoring callback from inactive transfer=$transferId")
+                        SyncLog.i(TAG, "Ignoring callback from inactive transfer=$transferId")
                         return
                     }
-                    Log.i(TAG, "Send callback: type=$type, position=${index + 1}/${messages.size}, status=$status, transfer=${pendingTransferId ?: "none"}")
+                    SyncLog.i(TAG, "Send callback: type=$type, position=${index + 1}/${messages.size}, status=$status, transfer=${pendingTransferId ?: "none"}")
                     if (status == ConnectIQ.IQMessageStatus.SUCCESS) {
                         armTimeout()
                         sendNext(device, messages, index + 1, entryCount, transferId)
                     } else {
-                        Log.w(TAG, "Transfer failed while sending type=$type: status=$status, transfer=${pendingTransferId ?: "none"}")
+                        SyncLog.w(TAG, "Transfer failed while sending type=$type: status=$status, transfer=${pendingTransferId ?: "none"}")
                         finish(Result.failure(syncFailure(R.string.sync_transfer_failed, messageStatusText(status))))
                     }
                 }
             })
         } catch (error: Exception) {
-            Log.e(TAG, "Exception while sending type=$type, transfer=${pendingTransferId ?: "none"}", error)
+            SyncLog.e(TAG, "Exception while sending type=$type, transfer=${pendingTransferId ?: "none"}", error)
             finish(Result.failure(syncFailure(connectionExceptionMessageRes(error))))
         }
     }
@@ -291,7 +306,7 @@ class GarminSyncManager(
     @Synchronized
     fun cancel(): Boolean {
         if (pendingCompletion == null || !cancelAllowed) return false
-        Log.i(TAG, "Sync canceled by user: transfer=${pendingTransferId ?: "none"}")
+        SyncLog.i(TAG, "Sync canceled by user: transfer=${pendingTransferId ?: "none"}")
         finish(Result.failure(SyncCancelledException(appContext.getString(R.string.sync_canceled))))
         return true
     }
@@ -309,8 +324,8 @@ class GarminSyncManager(
         val callback = pendingCompletion ?: return
         val transferId = pendingTransferId ?: "none"
         result.fold(
-            onSuccess = { Log.i(TAG, "Sync finished: transfer=$transferId, result=$it") },
-            onFailure = { Log.w(TAG, "Sync failed: transfer=$transferId, error=${it.message}") },
+            onSuccess = { SyncLog.i(TAG, "Sync finished: transfer=$transferId, result=$it") },
+            onFailure = { SyncLog.w(TAG, "Sync failed: transfer=$transferId, error=${it.message}") },
         )
         pendingCompletion = null
         pendingRevision = 0L
@@ -331,10 +346,10 @@ class GarminSyncManager(
         timeoutRunnable?.let(timeoutHandler::removeCallbacks)
         val runnable = Runnable {
             if (!isActive(transferId)) {
-                Log.i(TAG, "Ignoring timeout from inactive transfer=$transferId")
+                SyncLog.i(TAG, "Ignoring timeout from inactive transfer=$transferId")
                 return@Runnable
             }
-            Log.w(TAG, "Sync timeout: transfer=${pendingTransferId ?: "none"}, revision=$pendingRevision")
+            SyncLog.w(TAG, "Sync timeout: transfer=${pendingTransferId ?: "none"}, revision=$pendingRevision")
             val messageRes = if (pendingOperation == PendingOperation.CLEAR_WATCH) {
                 R.string.watch_clear_timeout
             } else {
@@ -348,7 +363,7 @@ class GarminSyncManager(
 
     @Synchronized
     override fun close() {
-        Log.i(TAG, "Closing Garmin sync manager")
+        SyncLog.i(TAG, "Closing Garmin sync manager")
         timeoutRunnable?.let(timeoutHandler::removeCallbacks)
         timeoutRunnable = null
         pendingCompletion = null

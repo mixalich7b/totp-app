@@ -57,6 +57,7 @@ mkdir -p "$HOME/.android-keys"
 keytool -genkeypair -v \
   -keystore "$HOME/.android-keys/totp-mixalich7b.jks" \
   -alias totp-mixalich7b -keyalg RSA -keysize 4096 -validity 10000
+chmod 600 "$HOME/.android-keys/totp-mixalich7b.jks"
 ```
 
 Добавить секреты подписи в `~/.gradle/gradle.properties` (не в репозиторий):
@@ -93,16 +94,19 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 export CONNECTIQ_HOME="$HOME/Library/Application Support/Garmin/ConnectIQ/Sdks/connectiq-sdk-mac-9.2.0-2026-06-09-92a1605b2"
 ```
 
-Один раз создать developer key вне репозитория:
+Если постоянного developer key ещё нет, один раз создать его вне репозитория:
 
 ```bash
-mkdir -p "$HOME/.connectiq"
-openssl genrsa -out "$HOME/.connectiq/developer_key.pem" 4096
+openssl genrsa -out "$HOME/developer_key.pem" 4096
 openssl pkcs8 -topk8 -inform PEM -outform DER \
-  -in "$HOME/.connectiq/developer_key.pem" \
-  -out "$HOME/.connectiq/developer_key.der" -nocrypt
-chmod 600 "$HOME/.connectiq/developer_key.pem" "$HOME/.connectiq/developer_key.der"
+  -in "$HOME/developer_key.pem" \
+  -out "$HOME/developer_key" -nocrypt
+chmod 600 "$HOME/developer_key.pem" "$HOME/developer_key"
 ```
+
+Не перезаписывайте существующий `$HOME/developer_key`: другим ключом нельзя собрать
+совместимое обновление уже установленного Garmin-приложения. Сделайте защищённые
+резервные копии обоих signing keys и паролей отдельно от исходного кода.
 
 Сборка PRG:
 
@@ -110,7 +114,7 @@ chmod 600 "$HOME/.connectiq/developer_key.pem" "$HOME/.connectiq/developer_key.d
 cd garmin
 "$CONNECTIQ_HOME/bin/monkeyc" \
   -f monkey.jungle -d fenix8pro47mm \
-  -y "$HOME/.connectiq/developer_key.der" \
+  -y "$HOME/developer_key" \
   -o bin/TOTP-mixalich7b.prg -w
 ```
 
@@ -119,7 +123,7 @@ cd garmin
 ```bash
 "$CONNECTIQ_HOME/bin/monkeyc" \
   -f monkey.jungle -d fenix8pro47mm -t \
-  -y "$HOME/.connectiq/developer_key.der" \
+  -y "$HOME/developer_key" \
   -o bin/TOTP-mixalich7b-tests.prg -w
 "$CONNECTIQ_HOME/bin/monkeydo" \
   bin/TOTP-mixalich7b-tests.prg fenix8pro47mm -t
@@ -145,6 +149,20 @@ Sideload на часы:
 4. Добавить glance `TOTP mixalich7b` стандартным редактором списка glances на часах.
 
 Developer key должен оставаться тем же при последующих обновлениях. UUID приложения также нельзя менять: `fa0bbecf-1e62-477b-b9cf-740aca2a4b32`.
+
+## Проверка release-артефактов
+
+Соберите обе части из одной ревизии исходного кода, затем сохраните protocol version
+и SHA-256 рядом с описанием выпуска:
+
+```bash
+shasum -a 256 \
+  android/app/build/outputs/apk/release/app-release.apk \
+  garmin/bin/TOTP-mixalich7b.prg
+```
+
+Параметры текущей стабильной подписанной версии приведены в
+[RELEASE.md](RELEASE.md). Собранные APK/PRG и signing keys в репозиторий не входят.
 
 ## Порядок первой проверки
 

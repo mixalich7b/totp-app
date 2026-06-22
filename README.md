@@ -46,9 +46,12 @@ Garmin (путь к SDK и ключу нужно подставить свой):
 cd garmin
 "$CONNECTIQ_HOME/bin/monkeyc" \
   -f monkey.jungle -d fenix8pro47mm \
-  -y "$HOME/.connectiq/developer_key.der" \
+  -y "$HOME/developer_key" \
   -o bin/TOTP-mixalich7b.prg -w
 ```
+
+Параметры и SHA-256 стабильной подписанной версии `0.1.0` находятся в
+[docs/RELEASE.md](docs/RELEASE.md).
 
 ## Безопасность
 
@@ -59,3 +62,6 @@ cd garmin
 На Garmin секреты находятся в `Application.Storage` без дополнительного прикладного шифрования. Транспорт Garmin Mobile SDK также не имеет дополнительного прикладного шифрования или pairing. Это сознательные ограничения текущей sideload-версии; подробнее — [docs/SECURITY.md](docs/SECURITY.md).
 
 Signing keys в репозиторий не входят и создаются владельцем проекта локально.
+QR распознаётся компонентом Google Code Scanner из Google Play services. Приложение
+не запрашивает `CAMERA` и не отправляет QR payload на собственный сервер; полученная
+строка разбирается и сохраняется локально.
