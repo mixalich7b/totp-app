@@ -21,7 +21,6 @@ class GarminSyncManager(
     private val cancellationChanged: (Boolean) -> Unit = {},
 ) : AutoCloseable {
     private val appContext = context.applicationContext
-    private val preferences = appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val connectIq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
     private val watchApp = IQApp(APP_UUID)
     private val timeoutHandler = Handler(Looper.getMainLooper())
@@ -35,7 +34,6 @@ class GarminSyncManager(
     private var pendingTransferId: String? = null
     private var pendingOperation: PendingOperation? = null
     private var pendingDeviceId: Long? = null
-    private var pendingDeviceName: String? = null
     private var cancelAllowed = false
     private var timeoutRunnable: Runnable? = null
 
@@ -125,13 +123,10 @@ class GarminSyncManager(
             Log.e(TAG, "Failed to query connected devices", it)
             completion(Result.failure(syncFailure(connectionExceptionMessageRes(it)))); return
         }
-        val rememberedId = rememberedWatchId()
-        val targetId = selectTargetDeviceId(connectedDevices.map { it.deviceIdentifier }, rememberedId)
-        val device = connectedDevices.firstOrNull { it.deviceIdentifier == targetId }
+        val device = connectedDevices.firstOrNull()
         if (device == null) {
-            val messageRes = if (rememberedId == null) R.string.sync_no_device else R.string.sync_remembered_device_offline
-            Log.w(TAG, "Sync rejected: target Garmin device is not connected")
-            completion(Result.failure(syncFailure(messageRes)))
+            Log.w(TAG, "Sync rejected: no connected Garmin device")
+            completion(Result.failure(syncFailure(R.string.sync_no_device)))
             return
         }
         if (pendingCompletion != null) {
@@ -155,7 +150,6 @@ class GarminSyncManager(
         pendingTransferId = transferId
         pendingOperation = PendingOperation.SNAPSHOT
         pendingDeviceId = device.deviceIdentifier
-        pendingDeviceName = device.friendlyName
         cancelAllowed = true
         cancellationChanged(true)
         armTimeout()
@@ -193,19 +187,14 @@ class GarminSyncManager(
             completion(Result.failure(syncFailure(R.string.sync_already_running)))
             return
         }
-        val rememberedId = rememberedWatchId()
-        if (rememberedId == null) {
-            completion(Result.failure(syncFailure(R.string.watch_not_remembered)))
-            return
-        }
         val device = runCatching {
-            connectIq.connectedDevices.firstOrNull { it.deviceIdentifier == rememberedId }
+            connectIq.connectedDevices.firstOrNull()
         }.getOrElse {
             Log.e(TAG, "Failed to query connected devices for clear", it)
             completion(Result.failure(syncFailure(connectionExceptionMessageRes(it)))); return
         }
         if (device == null) {
-            completion(Result.failure(syncFailure(R.string.sync_remembered_device_offline)))
+            completion(Result.failure(syncFailure(R.string.sync_no_device)))
             return
         }
         try {
@@ -221,7 +210,6 @@ class GarminSyncManager(
         pendingTransferId = transferId
         pendingOperation = PendingOperation.CLEAR_WATCH
         pendingDeviceId = device.deviceIdentifier
-        pendingDeviceName = device.friendlyName
         cancelAllowed = false
         cancellationChanged(false)
         statusChanged(appContext.getString(R.string.watch_clear_sending))
@@ -244,30 +232,6 @@ class GarminSyncManager(
             Log.e(TAG, "Exception while sending watch clear, transfer=$transferId", error)
             finish(Result.failure(syncFailure(connectionExceptionMessageRes(error))))
         }
-    }
-
-    @Synchronized
-    fun rememberedWatchName(): String? =
-        if (preferences.contains(PREFERENCE_DEVICE_ID)) {
-            preferences.getString(PREFERENCE_DEVICE_NAME, null) ?: appContext.getString(R.string.watch_unknown_name)
-        } else {
-            null
-        }
-
-    @Synchronized
-    fun forgetWatch(): Result<String> {
-        if (pendingCompletion != null) {
-            return Result.failure(syncFailure(R.string.sync_already_running))
-        }
-        val name = rememberedWatchName()
-            ?: return Result.failure(syncFailure(R.string.watch_not_remembered))
-        preferences.edit()
-            .remove(PREFERENCE_DEVICE_ID)
-            .remove(PREFERENCE_DEVICE_NAME)
-            .apply()
-        runCatching { connectIq.unregisterForApplicationEvents() }
-        Log.i(TAG, "Remembered watch cleared locally")
-        return Result.success(appContext.getString(R.string.watch_forget_complete, name))
     }
 
     private fun sendNext(
@@ -348,15 +312,11 @@ class GarminSyncManager(
             onSuccess = { Log.i(TAG, "Sync finished: transfer=$transferId, result=$it") },
             onFailure = { Log.w(TAG, "Sync failed: transfer=$transferId, error=${it.message}") },
         )
-        if (result.isSuccess && pendingOperation == PendingOperation.SNAPSHOT) {
-            rememberPendingDevice()
-        }
         pendingCompletion = null
         pendingRevision = 0L
         pendingTransferId = null
         pendingOperation = null
         pendingDeviceId = null
-        pendingDeviceName = null
         cancelAllowed = false
         cancellationChanged(false)
         timeoutRunnable?.let(timeoutHandler::removeCallbacks)
@@ -395,7 +355,6 @@ class GarminSyncManager(
         pendingTransferId = null
         pendingOperation = null
         pendingDeviceId = null
-        pendingDeviceName = null
         cancelAllowed = false
         runCatching { connectIq.unregisterForApplicationEvents() }
         runCatching { connectIq.shutdown(appContext) }
@@ -405,10 +364,6 @@ class GarminSyncManager(
         const val APP_UUID = "fa0bbecf-1e62-477b-b9cf-740aca2a4b32"
         private const val TAG = "TotpGarminSync"
         private const val SYNC_TIMEOUT_MS = 30_000L
-        private const val PREFERENCES_NAME = "garmin_watch_v1"
-        private const val PREFERENCE_DEVICE_ID = "device_id"
-        private const val PREFERENCE_DEVICE_NAME = "device_name"
-
         private fun normalizeMessageType(value: Any?): String? =
             value?.toString()?.removePrefix(":")
     }
@@ -425,21 +380,6 @@ class GarminSyncManager(
         else -> R.string.sync_transport_unavailable
     }
 
-    private fun rememberedWatchId(): Long? =
-        if (preferences.contains(PREFERENCE_DEVICE_ID)) {
-            preferences.getLong(PREFERENCE_DEVICE_ID, 0L)
-        } else {
-            null
-        }
-
-    private fun rememberPendingDevice() {
-        val deviceId = pendingDeviceId ?: return
-        preferences.edit()
-            .putLong(PREFERENCE_DEVICE_ID, deviceId)
-            .putString(PREFERENCE_DEVICE_NAME, pendingDeviceName)
-            .apply()
-        Log.i(TAG, "Successful sync target remembered")
-    }
 }
 
 internal fun messageStatusMessageRes(status: ConnectIQ.IQMessageStatus): Int = when (status) {
@@ -452,9 +392,6 @@ internal fun messageStatusMessageRes(status: ConnectIQ.IQMessageStatus): Int = w
     ConnectIQ.IQMessageStatus.FAILURE_INVALID_DEVICE -> R.string.sync_status_invalid_device
     ConnectIQ.IQMessageStatus.FAILURE_DEVICE_NOT_CONNECTED -> R.string.sync_status_device_not_connected
 }
-
-internal fun selectTargetDeviceId(connectedIds: List<Long>, rememberedId: Long?): Long? =
-    if (rememberedId == null) connectedIds.firstOrNull() else rememberedId.takeIf(connectedIds::contains)
 
 internal fun responseMatchesTransfer(responseTransferId: Any?, pendingTransferId: String?): Boolean =
     responseTransferId == null || responseTransferId.toString() == pendingTransferId

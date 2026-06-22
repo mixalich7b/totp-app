@@ -95,9 +95,9 @@ class MainActivity : Activity() {
             textSize = titleTextSizePx
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         titleRow.addView(Button(this).apply {
-            text = getString(R.string.action_watch_menu)
-            contentDescription = getString(R.string.watch_management)
-            setOnClickListener { showWatchManagementDialog() }
+            text = getString(R.string.action_clear_watch)
+            contentDescription = getString(R.string.dialog_clear_watch)
+            setOnClickListener { confirmClearWatch() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(titleRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = contentGapPx
@@ -437,42 +437,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showWatchManagementDialog() {
-        val watchName = syncManager.rememberedWatchName()
-        if (watchName == null) {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.watch_management)
-                .setMessage(R.string.watch_not_remembered_explanation)
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.watch_management_for, watchName))
-            .setItems(R.array.watch_management_actions) { _, index ->
-                if (index == 0) confirmForgetWatch(watchName) else confirmClearWatch(watchName)
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    private fun confirmForgetWatch(watchName: String) {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.dialog_forget_watch)
-            .setMessage(getString(R.string.message_forget_watch, watchName))
-            .setNegativeButton(R.string.action_cancel, null)
-            .setPositiveButton(R.string.action_forget_watch) { _, _ ->
-                syncManager.forgetWatch()
-                    .onSuccess { statusView.text = it }
-                    .onFailure(::showError)
-            }
-            .show()
-    }
-
-    private fun confirmClearWatch(watchName: String) {
+    private fun confirmClearWatch() {
         AlertDialog.Builder(this)
             .setTitle(R.string.dialog_clear_watch)
-            .setMessage(getString(R.string.message_clear_watch, watchName))
+            .setMessage(R.string.message_clear_watch)
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_clear_watch) { _, _ ->
                 syncButton.isEnabled = false

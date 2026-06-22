@@ -37,22 +37,6 @@ class GarminSyncErrorMapperTest {
     }
 
     @Test
-    fun `first connected watch is selected when no watch is remembered`() {
-        assertEquals(10L, selectTargetDeviceId(listOf(10L, 20L), null))
-        assertEquals(null, selectTargetDeviceId(emptyList(), null))
-    }
-
-    @Test
-    fun `remembered watch is selected regardless of connected order`() {
-        assertEquals(20L, selectTargetDeviceId(listOf(10L, 20L), 20L))
-    }
-
-    @Test
-    fun `another connected watch never replaces an unavailable remembered watch`() {
-        assertEquals(null, selectTargetDeviceId(listOf(10L), 20L))
-    }
-
-    @Test
     fun `response transfer is correlated while legacy response without id remains compatible`() {
         assertEquals(true, responseMatchesTransfer("tx-active", "tx-active"))
         assertEquals(false, responseMatchesTransfer("tx-old", "tx-active"))
