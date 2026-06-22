@@ -264,7 +264,7 @@ private object EntryCodec {
         val issuer = input.readUTF()
         val account = input.readUTF()
         val secretLength = input.readInt()
-        require(secretLength in 1..1024) { "Некорректная длина секрета" }
+        require(secretLength in 1..TotpEntry.MAX_SECRET_BYTES) { "Некорректная длина секрета" }
         val secret = ByteArray(secretLength).also(input::readFully)
         TotpEntry(
             displayName = name,

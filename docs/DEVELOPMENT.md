@@ -38,3 +38,19 @@ Android Keystore и SQLite, уникальность IV, отсутствие pl
 Keystore key, явный reset, повреждение GCM tag, а также атомарная замена записи с
 сохранением ID и единственным увеличением revision для всей операции. Preview
 позволяет выбрать записи, а политика дубликатов применяется ко всей выбранной пачке.
+
+Расширенный Garmin test PRG успешно выполнен 22 июня 2026 года в Connect IQ Device
+Simulator 9.2.0 для `fenix8pro47mm` (runtime API 6.0.2): 8 тестов, 8 PASS. Проверены
+RFC 6238 SHA-1/SHA-256, канонический snapshot hash, представления типов сообщений,
+атомарный commit, stale revision, checksum, count/sequence/transfer ID, потеря,
+перестановка и повтор chunks. `monkeydo` вернул exit code 1 при итоговой строке
+`PASSED (passed=8, failed=0, errors=0)`; результат следует определять по текстовому
+итогу. Перед успешным запуском старый процесс Simulator пришлось полностью завершить
+и запустить заново; PRG был подписан постоянным developer key проекта.
+
+Android unit-набор содержит 42 теста. Детерминированные property/fuzz-сценарии
+проверяют случайные Base32 secrets, Unicode `otpauth://` URI, произвольные и
+усечённые protobuf migration payload и свойства канонического snapshot hash.
+Максимальная длина декодированного secret — 1024 байта; это единый предел input
+model и storage codec, исключающий создание записи, которую нельзя прочитать после
+перезапуска.

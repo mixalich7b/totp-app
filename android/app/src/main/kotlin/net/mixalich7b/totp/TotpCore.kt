@@ -40,6 +40,7 @@ data class TotpEntry(
     init {
         require(displayName.isNotBlank()) { "Название обязательно" }
         require(secret.isNotEmpty()) { "Секрет пуст" }
+        require(secret.size <= MAX_SECRET_BYTES) { "Секрет длиннее $MAX_SECRET_BYTES байт" }
         require(digits == 6 || digits == 8) { "Допустимо 6 или 8 цифр" }
         require(periodSeconds in 5..300) { "Период должен быть от 5 до 300 секунд" }
     }
@@ -51,6 +52,10 @@ data class TotpEntry(
         createdAt == other.createdAt && updatedAt == other.updatedAt && revision == other.revision
 
     override fun hashCode(): Int = id.hashCode()
+
+    companion object {
+        const val MAX_SECRET_BYTES = 1024
+    }
 }
 
 object Base32 {
@@ -62,6 +67,9 @@ object Base32 {
         val paddingStart = compact.indexOf('=')
         val normalized = if (paddingStart >= 0) compact.substring(0, paddingStart) else compact
         require(normalized.isNotEmpty()) { "Секрет пуст" }
+        require(normalized.length <= MAX_ENCODED_SECRET_LENGTH) {
+            "Base32 secret длиннее ${TotpEntry.MAX_SECRET_BYTES} байт"
+        }
         val remainder = normalized.length % 8
         val expectedPadding = when (remainder) {
             0 -> 0
@@ -94,6 +102,8 @@ object Base32 {
         require(bits == 0 || buffer == 0) { "Некорректный хвост Base32" }
         return out.toByteArray()
     }
+
+    private const val MAX_ENCODED_SECRET_LENGTH = (TotpEntry.MAX_SECRET_BYTES * 8 + 4) / 5
 }
 
 object Totp {
