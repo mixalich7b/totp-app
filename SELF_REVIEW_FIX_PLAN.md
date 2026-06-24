@@ -1,6 +1,6 @@
 # План исправлений по итогам self-review
 
-Дата: 22 июня 2026 года.
+Дата: 22 июня 2026 года. Завершён 25 июня 2026 года.
 
 Цель — устранить найденные риски корректности, безопасности, lifecycle и
 тестируемости перед следующей stable-сборкой. Garmin-приложение будет
@@ -20,9 +20,9 @@
 - [x] AndroidX Core и Gradle обновлены; distribution/dependency checksums закреплены.
 - [x] Пройдены 54 Android unit, 7 instrumentation и 12 Garmin Simulator tests;
   Android lint не содержит issues, Garmin release/test PRG собираются.
-- [ ] Выполнить ручную regression-проверку `0.1.1` на Xiaomi 17 и fēnix 8 Pro после
+- [x] Выполнена ручная regression-проверка `0.1.1` на Xiaomi 17 и fēnix 8 Pro после
   чистой установки: QR, sync при закрытом watch app, interrupted transfer, clear,
-  favorite и glance. Только после неё обновить stable hashes в `docs/RELEASE.md`.
+  favorite и glance. Stable hashes обновлены в `docs/RELEASE.md`.
 
 ## 1. Regression-тесты
 

@@ -40,14 +40,11 @@ background delegate, полный цикл snapshot/ACK, обновлённый 
 изменений lifecycle, синхронизации, storage или Garmin UI.
 
 Усиление автоматических тестов, пользовательские сценарии и квалификация стабильной
-sideload-версии завершены 22 июня 2026 года. Версия `0.1.0` признана stable после
-проверок из этапа 8.4; параметры итоговых артефактов находятся в
-[RELEASE.md](RELEASE.md).
-
-Для текущих исходников `0.1.1` завершён автоматический self-review: 54 unit-теста,
-7 instrumentation-тестов, Android lint без issues и 12 Garmin Simulator tests.
-Из-за замены Garmin storage schema без migration версия остаётся кандидатом до
-чистой установки и повторной аппаратной проверки sync/clear/favorite/glance.
+sideload-версии завершены. Версия `0.1.1` признана stable 25 июня 2026 года после
+54 unit-тестов, 7 instrumentation-тестов, Android lint без issues, 12 Garmin
+Simulator tests, чистой установки и повторной аппаратной проверки QR, sync при
+закрытом watch app, interrupted transfer, clear, favorite и glance. Параметры
+итоговых артефактов находятся в [RELEASE.md](RELEASE.md).
 
 Android storage/UI instrumentation-набор из семи тестов успешно выполнен 22 июня
 2026 года на эмуляторе Android 16/API 36 (`sdk_gphone64_arm64`). Проверены реальный

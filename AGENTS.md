@@ -150,7 +150,7 @@ cd garmin
 
 У Garmin compiler допустимы текущие warnings о динамическом типе контейнеров wire protocol, но новые errors/crashes недопустимы. `monkeydo` может вернуть non-zero при итоговом `PASSED`; проверять текстовый итог tests.
 
-После изменения lifecycle выполнить обычный Simulator smoke-test. После изменения sync, glance, storage или UI обязательна ручная проверка на реальных fēnix 8 Pro. Аппаратная regression-конфигурация подтверждена владельцем проекта 22 июня 2026 года на Android 16/Xiaomi 17 и fēnix 8 Pro 47 mm firmware 22.35, включая немедленную очистку часов; это исходная regression-конфигурация. Stable baseline — версия `0.1.0`, protocol v1, квалифицированная 22 июня 2026 года.
+После изменения lifecycle выполнить обычный Simulator smoke-test. После изменения sync, glance, storage или UI обязательна ручная проверка на реальных fēnix 8 Pro. Аппаратная regression-конфигурация подтверждена владельцем проекта на Android 16/Xiaomi 17 и fēnix 8 Pro 47 mm firmware 22.35; это исходная regression-конфигурация. Stable baseline — версия `0.1.1`, protocol v1, квалифицированная 25 июня 2026 года после чистой установки и проверки QR, sync при закрытом watch app, interrupted transfer, clear, favorite и glance.
 
 ## Документация
 
