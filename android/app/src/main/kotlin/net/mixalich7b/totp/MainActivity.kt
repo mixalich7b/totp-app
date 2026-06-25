@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private lateinit var syncManager: GarminSyncManager
     private lateinit var adapter: EntryAdapter
     private lateinit var statusView: TextView
+    private lateinit var emptyView: TextView
     private lateinit var syncButton: Button
     private lateinit var addButton: Button
     private lateinit var qrButton: Button
@@ -85,7 +86,7 @@ class MainActivity : Activity() {
                 }
             },
         )
-        reload()
+        reload(showLoading = true)
     }
 
     private fun buildContent(): View {
@@ -137,7 +138,8 @@ class MainActivity : Activity() {
             }
             setOnItemClickListener { _, _, position, _ -> confirmDelete(entries[position]) }
         }
-        root.addView(entriesList.emptyView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        emptyView = entriesList.emptyView as TextView
+        root.addView(emptyView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(entriesList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -175,9 +177,13 @@ class MainActivity : Activity() {
         window.decorView.setBackgroundColor(surfaceColor)
     }
 
-    private fun reload(afterReload: () -> Unit = {}) {
+    private fun reload(showLoading: Boolean = false, afterReload: () -> Unit = {}) {
         entries.forEach { it.secret.fill(0) }
         entries = mutableListOf()
+        if (showLoading) {
+            statusView.text = getString(R.string.status_loading_local_db)
+            emptyView.text = getString(R.string.status_loading_local_db)
+        }
         adapter.notifyDataSetChanged()
         runStorage(
             operation = { LocalSnapshot(repository.list(), repository.revision()) },
@@ -185,7 +191,12 @@ class MainActivity : Activity() {
                 entries = snapshot.entries.toMutableList()
                 adapter.notifyDataSetChanged()
                 statusView.text = getString(R.string.local_status, snapshot.revision, entries.size)
+                emptyView.text = getString(R.string.empty_secrets)
                 afterReload()
+            },
+            onFailure = { error ->
+                emptyView.text = getString(R.string.empty_secrets)
+                handleError(error)
             },
             onDiscard = { snapshot -> snapshot.entries.forEach { it.secret.fill(0) } },
         )
@@ -220,7 +231,7 @@ class MainActivity : Activity() {
                 }
             },
             onSuccess = {
-                reload()
+                reload(showLoading = true)
                 toast(getString(R.string.storage_reset_complete))
             },
             onFailure = { error ->

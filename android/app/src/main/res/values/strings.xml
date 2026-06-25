@@ -4,6 +4,7 @@
     <string name="qr">QR</string>
     <string name="default_period">30</string>
     <string name="status_initializing">Инициализация…</string>
+    <string name="status_loading_local_db">Загрузка локальной БД…</string>
     <string name="empty_secrets">Секретов пока нет</string>
     <string name="action_add">Добавить</string>
     <string name="action_sync">Синхр.</string>
