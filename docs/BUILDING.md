@@ -1,48 +1,43 @@
-# Сборка и sideload
+# Сборка, тесты и sideload
 
 ## Android
 
 Требования:
 
-- JDK 17 или новее (проверено с JDK 21);
-- Android SDK Platform 37 и Build Tools 36+;
+- JDK 17 или новее;
+- Android SDK Platform 37 и Build Tools;
 - `adb` из Android Platform Tools;
-- для QR-сканера — устройство или эмулятор с Google Play services;
-- для синхронизации — установленный Garmin Connect с подключёнными часами.
+- Google Play services для QR-сканера;
+- Garmin Connect с подключёнными часами для синхронизации.
 
-Gradle Wrapper сам загрузит Gradle 9.6.0 и зависимости. SHA-256 Gradle distribution
-и checksums Maven-артефактов закреплены в wrapper и
-`gradle/verification-metadata.xml`; неожиданная подмена зависимости останавливает
-сборку. Android SDK можно указать переменной или локальным файлом, который игнорируется git:
+Gradle Wrapper использует Gradle 9.6.0. SHA-256 distribution и checksums зависимостей
+закреплены в wrapper и `gradle/verification-metadata.xml`.
 
 ```bash
 cd android
 export ANDROID_HOME="$HOME/Library/Android/sdk"
-# Альтернатива: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 ```
 
-Проверка и debug APK:
+Unit-тесты, lint и debug APK:
 
 ```bash
 ./gradlew clean testDebugUnitTest lintDebug assembleDebug
-adb devices
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Интеграционные тесты SQLite и Android Keystore на подключённом устройстве или
-запущенном эмуляторе (тесты очищают только данные debug-приложения):
+Instrumentation-тесты:
 
 ```bash
+./gradlew assembleDebugAndroidTest
 ./gradlew connectedDebugAndroidTest
 ```
 
-Тесты удаляют локальную БД и Keystore key пакета `net.mixalich7b.totp`, поэтому
-их следует запускать на чистом эмуляторе или тестовом устройстве без реальных
-секретов. При `INSTALL_FAILED_UPDATE_INCOMPATIBLE` используйте чистый эмулятор:
-установленное приложение подписано другим ключом и не должно удаляться ради теста.
+`connectedDebugAndroidTest` удаляет БД и Android Keystore key debug-пакета. Запускайте
+его только на чистом эмуляторе или тестовом устройстве без реальных секретов. При
+конфликте подписи не удаляйте пользовательское приложение автоматически.
 
-Если Gradle ожидает устройство после сборки test APK, тот же набор можно запустить
-через ADB напрямую:
+Если Gradle не может корректно установить APK или остаётся ждать устройство,
+собранный instrumentation-набор можно запустить через ADB напрямую:
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -51,9 +46,12 @@ adb shell am instrument -w \
   net.mixalich7b.totp.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-Debug APK предназначен для тестов: он `debuggable=true`. Для реальных секретов используйте подписанный release APK.
+Debug APK предназначен для тестов. Для реальных секретов используйте подписанный
+release APK.
 
-Один раз создать release keystore вне репозитория:
+### Release key
+
+Один раз создайте keystore вне репозитория:
 
 ```bash
 mkdir -p "$HOME/.android-keys"
@@ -63,7 +61,7 @@ keytool -genkeypair -v \
 chmod 600 "$HOME/.android-keys/totp-mixalich7b.jks"
 ```
 
-Добавить секреты подписи в `~/.gradle/gradle.properties` (не в репозиторий):
+Добавьте настройки в `~/.gradle/gradle.properties`:
 
 ```properties
 TOTP_RELEASE_STORE_FILE=/Users/USER/.android-keys/totp-mixalich7b.jks
@@ -72,96 +70,79 @@ TOTP_RELEASE_KEY_ALIAS=totp-mixalich7b
 TOTP_RELEASE_KEY_PASSWORD=CHANGE_ME
 ```
 
-Собрать, проверить подпись и установить release APK:
+Сборка, проверка подписи и установка:
 
 ```bash
 ./gradlew clean testDebugUnitTest lintRelease assembleRelease
-"$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
+"$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs \
   app/build/outputs/apk/release/app-release.apk
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-Если Build Tools установлены в другой версии, замените `37.0.0` в пути. Без четырёх signing properties Gradle создаст неподписанный `app-release-unsigned.apk`, который напрямую не устанавливается.
+Если Build Tools имеют другую версию, измените путь к `apksigner`. Без всех четырёх
+signing properties создаётся неподписанный `app-release-unsigned.apk`.
 
 ## Garmin Connect IQ
 
 Требования:
 
 - Connect IQ SDK 9.2.0;
-- профиль `fenix8pro47mm` в SDK Manager;
-- Connect IQ Device Simulator для запуска на компьютере.
-
-Задать путь к активному SDK:
+- профиль `fenix8pro47mm`;
+- Connect IQ Device Simulator для локального запуска.
 
 ```bash
 export CONNECTIQ_HOME="$HOME/Library/Application Support/Garmin/ConnectIQ/Sdks/connectiq-sdk-mac-9.2.0-2026-06-09-92a1605b2"
 ```
 
-Если постоянного developer key ещё нет, один раз создать его вне репозитория:
+Если developer key ещё не создан:
 
 ```bash
 openssl genrsa -out "$HOME/developer_key.pem" 4096
 openssl pkcs8 -topk8 -inform PEM -outform DER \
-  -in "$HOME/developer_key.pem" \
-  -out "$HOME/developer_key" -nocrypt
+  -in "$HOME/developer_key.pem" -out "$HOME/developer_key" -nocrypt
 chmod 600 "$HOME/developer_key.pem" "$HOME/developer_key"
 ```
 
-Не перезаписывайте существующий `$HOME/developer_key`: другим ключом нельзя собрать
-совместимое обновление уже установленного Garmin-приложения. Сделайте защищённые
-резервные копии обоих signing keys и паролей отдельно от исходного кода.
+Не заменяйте ключ, которым собрано установленное приложение. Храните защищённую
+резервную копию ключа вне репозитория.
 
 Сборка PRG:
 
 ```bash
 cd garmin
-"$CONNECTIQ_HOME/bin/monkeyc" \
-  -f monkey.jungle -d fenix8pro47mm \
-  -y "$HOME/developer_key" \
-  -o bin/TOTP-mixalich7b.prg -w
+"$CONNECTIQ_HOME/bin/monkeyc" -f monkey.jungle -d fenix8pro47mm \
+  -y "$HOME/developer_key" -o bin/TOTP-mixalich7b.prg -w
 ```
 
-Сборка и запуск RFC unit-тестов в уже запущенном симуляторе:
+Сборка и запуск тестового PRG в уже запущенном симуляторе:
 
 ```bash
-"$CONNECTIQ_HOME/bin/monkeyc" \
-  -f monkey.jungle -d fenix8pro47mm -t \
-  -y "$HOME/developer_key" \
-  -o bin/TOTP-mixalich7b-tests.prg -w
+"$CONNECTIQ_HOME/bin/monkeyc" -f monkey.jungle -d fenix8pro47mm -t \
+  -y "$HOME/developer_key" -o bin/TOTP-mixalich7b-tests.prg -w
 "$CONNECTIQ_HOME/bin/monkeydo" \
   bin/TOTP-mixalich7b-tests.prg fenix8pro47mm -t
 ```
 
-Ориентируйтесь на итоговую строку тестов: `monkeydo` может вернуть exit code 1 даже
-при `PASSED`. Если Simulator остаётся на синем треугольнике и не печатает результаты,
-полностью завершите старый процесс Simulator, запустите `ConnectIQ.app` заново и
-повторите команду. Для воспроизводимой проверки используйте постоянный developer key,
-которым собирается основное Garmin-приложение.
+Оценивайте итоговую строку тестов: `monkeydo` может вернуть non-zero при итоговом
+`PASSED`. Если Simulator завис на стартовом экране, полностью перезапустите его.
 
-Запуск в симуляторе: сначала запустите `ConnectIQ.app`, выберите fēnix 8 Pro 47 mm, затем:
+Запуск обычного приложения:
 
 ```bash
 "$CONNECTIQ_HOME/bin/monkeydo" bin/TOTP-mixalich7b.prg fenix8pro47mm
 ```
 
-Sideload на часы:
+### Sideload на часы
 
-Текущая версия `0.1.1` несовместима с внутренней Garmin storage schema версии
-`0.1.0` и намеренно не содержит миграции. Перед установкой удалите прежнюю версию
-watch app с часов вместе с её данными. После установки заново синхронизируйте все
-записи с Android.
+1. Подключите часы USB-кабелем.
+2. Скопируйте `garmin/bin/TOTP-mixalich7b.prg` в `GARMIN/APPS`.
+3. Безопасно отключите часы.
+4. Добавьте glance `TOTP mixalich7b` стандартным редактором glances.
 
-1. Подключить часы USB-кабелем и открыть файловое хранилище через MTP/поддерживаемый Garmin файловый клиент.
-2. Скопировать `garmin/bin/TOTP-mixalich7b.prg` в каталог `GARMIN/APPS`.
-3. Безопасно отключить часы. Приложение появится в списке приложений.
-4. Добавить glance `TOTP mixalich7b` стандартным редактором списка glances на часах.
+Для совместимых обновлений сохраняйте developer key и UUID
+`fa0bbecf-1e62-477b-b9cf-740aca2a4b32`.
 
-Developer key должен оставаться тем же при последующих обновлениях. UUID приложения также нельзя менять: `fa0bbecf-1e62-477b-b9cf-740aca2a4b32`.
-
-## Проверка release-артефактов
-
-Соберите обе части из одной ревизии исходного кода, затем сохраните protocol version
-и SHA-256 рядом с описанием выпуска:
+## Проверка артефактов
 
 ```bash
 shasum -a 256 \
@@ -169,13 +150,14 @@ shasum -a 256 \
   garmin/bin/TOTP-mixalich7b.prg
 ```
 
-Параметры текущей стабильной подписанной версии приведены в
-[RELEASE.md](RELEASE.md). Собранные APK/PRG и signing keys в репозиторий не входят.
+Параметры текущих stable-артефактов находятся в [RELEASE.md](RELEASE.md).
 
-## Порядок первой проверки
+## Проверка на устройствах
 
-1. Установить Garmin PRG, затем Android APK.
-2. В Android добавить тестовую запись или импортировать QR.
-3. Убедиться, что Garmin Connect видит часы как подключённые, и нажать `Синхр.`.
-4. Открыть часовое приложение, сравнить код с исходным authenticator около начала и конца 30-секундного периода.
-5. Выбрать запись кнопкой `START`, затем проверить glance и открытие приложения из glance.
+1. Установите Garmin PRG и Android APK.
+2. Добавьте тестовую запись вручную и через QR.
+3. Проверьте sync при открытом и закрытом watch app.
+4. Прервите передачу до commit и проверьте retry.
+5. Сравните TOTP около границы периода с независимым authenticator.
+6. Проверьте кнопки, жесты, favorite, glance и открытие приложения из glance.
+7. Очистите часы и повторно синхронизируйте записи.

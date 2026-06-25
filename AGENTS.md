@@ -1,127 +1,187 @@
 # Инструкции для агентов
 
-Этот файл содержит обязательный контекст для автоматизированных агентов, изменяющих проект. Пользовательская документация находится в `README.md` и `docs/`.
+Обязательный контекст для автоматизированных агентов. Пользовательская документация
+находится в `README.md` и `docs/`.
 
 ## Границы проекта
 
-- Проект состоит из Android companion app и Garmin Connect IQ watch app/glance с названием `TOTP mixalich7b`.
-- Распространение только через sideload. Не добавлять store publishing, сервер, аккаунты, аналитику или crash-reporting без явного запроса.
-- Android — единственный источник истины для списка секретов. Часы могут вычислять коды и выбирать локальный favorite, но не редактировать записи.
-- Не добавлять дополнительное прикладное шифрование Garmin storage или транспорта и не добавлять отдельный pairing: это сознательно исключено пользователем.
-- Не добавлять биометрическое подтверждение или PIN приложения. Android Keystore должен работать без пользовательского подтверждения.
-- Не выполнять `git add`, `git commit` и другие изменяющие git-операции: ими управляет пользователь.
-- Не добавлять в репозиторий signing keys, keystores, реальные TOTP secrets, локальные БД, screenshots с кодами или собранные артефакты.
+- Проект состоит из Android companion app и Garmin Connect IQ watch app/glance
+  `TOTP mixalich7b`.
+- Распространение только через sideload. Не добавлять store publishing, сервер,
+  аккаунты, облачную синхронизацию, аналитику или crash-reporting без запроса.
+- Android — единственный источник истины для списка записей. Часы только хранят
+  snapshot, вычисляют коды и выбирают локальный favorite.
+- Не добавлять биометрию/PIN, отдельный application pairing или дополнительное
+  прикладное шифрование Garmin storage/транспорта.
+- Не выполнять `git add`, `git commit` и другие изменяющие git-операции.
+- Не добавлять в репозиторий signing keys, keystores, реальные TOTP secrets,
+  локальные БД, screenshots с кодами или собранные APK/PRG.
 
-## Неизменяемые идентификаторы и версии протокола
+## Структура репозитория
 
-- Android `applicationId`/namespace: `net.mixalich7b.totp`.
-- Garmin UUID: `fa0bbecf-1e62-477b-b9cf-740aca2a4b32`; manifest использует форму без дефисов.
+```text
+.
+├── README.md                   краткое описание и ссылки
+├── AGENTS.md                   инварианты для агентов
+├── android/
+│   ├── app/build.gradle.kts    Android config, версии, зависимости, signing
+│   ├── app/src/main/
+│   │   ├── AndroidManifest.xml permissions, backup и Activity
+│   │   ├── kotlin/net/mixalich7b/totp/
+│   │   │   ├── MainActivity.kt              platform UI и orchestration
+│   │   │   ├── TotpCore.kt                  model, Base32, TOTP, otpauth
+│   │   │   ├── SecureEntryRepository.kt     SQLite + Android Keystore
+│   │   │   ├── MigrationParser.kt           Google Authenticator protobuf
+│   │   │   ├── MigrationBatchCollector.kt   multi-batch assembly
+│   │   │   ├── ImportPlanner.kt             duplicates/import policy
+│   │   │   ├── GarminSyncManager.kt         Mobile SDK state machine
+│   │   │   └── SyncProtocol.kt              canonical snapshot hash
+│   │   └── res/                 strings, styles, dimensions and icons
+│   ├── app/src/test/            JVM unit/property/fuzz tests
+│   ├── app/src/androidTest/     SQLite/Keystore instrumentation tests
+│   ├── gradle/verification-metadata.xml
+│   └── gradlew
+├── garmin/
+│   ├── manifest.xml             UUID, target, permissions, languages
+│   ├── monkey.jungle
+│   ├── source/
+│   │   ├── TotpMixalich7bApp.mc app lifecycle/background registration
+│   │   ├── TotpView.mc          fullscreen list and input
+│   │   ├── TotpGlanceView.mc    favorite glance
+│   │   ├── TotpCore.mc          TOTP and snapshot hash
+│   │   ├── TotpStore.mc         active/staging storage
+│   │   ├── TotpSyncServiceDelegate.mc background wire receiver
+│   │   └── TotpCoreTest.mc      Connect IQ test PRG
+│   ├── resources/               English strings and icon
+│   └── resources-rus/           Russian strings
+├── protocol/schema.md           canonical sync protocol v1
+└── docs/
+    ├── BUILDING.md              build, tests and sideload
+    ├── DEVELOPMENT.md           architecture and behavior
+    ├── SECURITY.md              threat model
+    └── RELEASE.md               current stable artifact metadata
+```
+
+`android/**/build/`, `android/.gradle/` и `garmin/bin/` — generated output, не
+источник истины. `android/local.properties` и IDE-файлы локальны.
+
+## Идентификаторы и toolchain
+
+- Android application ID/namespace: `net.mixalich7b.totp`.
+- Garmin UUID: `fa0bbecf-1e62-477b-b9cf-740aca2a4b32`; в manifest без дефисов.
 - Android Keystore alias: `net.mixalich7b.totp.entries.v1`.
-- Storage AAD v1: UTF-8 строка `id|schema|revision`.
-- Sync protocol: v1, точная схема в `protocol/schema.md`.
-- Target Garmin profile: `fenix8pro47mm`, min Connect IQ API 6.0.0.
-
-Не менять UUID, alias, AAD, storage schema или wire format без явного решения
-владельца. Переход Garmin storage после `0.1.0` — согласованное исключение: migration
-не реализуется, требуется чистая переустановка. При несовместимом изменении wire
-format увеличить protocol version и одновременно обновить обе платформы и документацию.
-
-## Структура и toolchain
-
-- `android/`: Kotlin, platform `Activity`/`ListView`/dialogs, `SQLiteOpenHelper`.
-- `garmin/`: Monkey C watch app и glance в одном package.
-- `protocol/schema.md`: канонический wire format.
-- `docs/BUILDING.md`: пользовательские команды сборки и sideload.
+- Storage AAD v1: UTF-8 `id|schema|revision`.
+- Sync protocol: v1; каноническая схема — `protocol/schema.md`.
 - Android: AGP 9.2.1, Gradle 9.6.0, compile/target SDK 37, min SDK 28.
-- Garmin: Connect IQ SDK 9.2.0, Companion SDK 2.4.0.
+- Garmin: Connect IQ SDK 9.2.0, Companion SDK 2.4.0, target
+  `fenix8pro47mm`, min API 6.0.0.
 
-UI и persistence намеренно используют стандартные platform-компоненты. Не вводить Compose, Room, KSP/kapt или новый DI/framework без необходимости и явного обоснования.
+Не менять ID, UUID, alias, AAD, storage/wire format или protocol version без явного
+решения владельца и одновременного обновления реализации, тестов и документации.
 
-## Инварианты Android security
+UI и persistence намеренно используют стандартные platform-компоненты. Не вводить
+Compose, Room, KSP/kapt, DI или другой framework без необходимости и обоснования.
 
-- В SQLite допустимы только `id`, revision, schema version, 12-byte IV и ciphertext с GCM tag.
-- `displayName`, issuer, account и secret должны находиться внутри зашифрованного payload.
-- Каждая запись шифруется AES-256-GCM с новым IV, который генерирует Android Keystore provider при `Cipher.init(ENCRYPT_MODE, key)` и возвращает через `cipher.iv`. Не передавать caller-provided IV при шифровании: ключ использует `setRandomizedEncryptionRequired(true)`.
-- Keystore key неэкспортируемый, `setUserAuthenticationRequired(false)`.
-- Сначала можно запросить StrongBox, затем корректно fallback на обычный Android Keystore.
-- `setUnlockedDeviceRequired(true)` применять только с API 35+.
-- Если БД содержит записи, а key отсутствует/невалиден, не создавать новый key молча. Данные невосстановимы; требуется явный reset flow.
-- Reset локального Android-хранилища допустим только после явного подтверждения пользователя. Перед `SecureEntryRepository.resetLocalStorage()` закрыть текущий repository; сброс удаляет Android БД и Keystore key, но не данные на часах.
-- Backup/data extraction остаются отключёнными, чувствительная Activity сохраняет `FLAG_SECURE`, release остаётся `debuggable=false`.
-- Не помещать secrets, QR payload, decrypted records или sync messages в logs, clipboard, exceptions, saved state, analytics и crash reports.
-- Временные `ByteArray` очищать там, где это практически возможно.
+## Android: данные и безопасность
 
-QR импорт:
+- SQLite содержит только `id`, revision, schema version, 12-byte IV и ciphertext
+  с GCM tag. Display name, issuer, account и secret находятся в encrypted payload.
+- Каждая запись шифруется AES-256-GCM с новым IV, созданным provider после
+  `Cipher.init(ENCRYPT_MODE, key)`. Caller-provided IV при шифровании запрещён.
+- Keystore key неэкспортируемый, randomized encryption включён,
+  `setUserAuthenticationRequired(false)`.
+- StrongBox используется с корректным fallback. `setUnlockedDeviceRequired(true)`
+  применяется только на API 35+.
+- Если БД непуста, а key отсутствует/невалиден, не создавать новый key молча.
+  Нужен явный reset flow. Перед `resetLocalStorage()` закрыть repository.
+- Reset Android storage удаляет только локальную БД и Keystore key, не данные часов.
+- Backup/data extraction отключены, Activity сохраняет `FLAG_SECURE`, release
+  остаётся `debuggable=false`.
+- Persistence и подготовка snapshot не выполняются на UI thread. Repository
+  копирует принадлежащие ему `ByteArray`; временные secret arrays очищаются.
+- Поле ручного ввода secret отключает suggestions, autofill и сохранение view state;
+  содержимое очищается при закрытии диалога.
+- Размеры UI задаются в dp/sp resources. Не передавать уже пересчитанные px обратно
+  в API, ожидающие sp. Сохранять обработку system bar insets и edge-to-edge.
+- Во время storage/sync operation блокировать конфликтующие изменения данных.
+- Не помещать secret, QR payload, decrypted records или sync dictionaries в logs,
+  clipboard, exceptions, saved state или UI ошибок.
 
-- Одиночный формат: только `otpauth://totp`.
-- Google Authenticator migration поддерживает payload versions 1/2 и multi-batch по `batchId`, `batchIndex`, `batchSize`; неизвестные protobuf-поля пропускаются по wire type.
-- HOTP, SHA-512 и MD5 отклоняются без преобразования. Поддерживаются SHA-1/SHA-256, 6/8 digits, period 5–300.
-- Ошибка отдельной migration-записи не должна отменять корректные записи из той же
-  пачки. В отчёте допустимы только безопасные категории и количества, без имён и
-  содержимого записей.
-- Декодированный secret должен содержать 1–1024 байта. Не увеличивать предел без
-  одновременной оценки Android encrypted codec, Garmin storage/mailbox и памяти.
-- Google Code Scanner зависит от Google Play services и не требует CAMERA permission. Не добавлять permission без смены scanner implementation.
-- Дубликат определяется по NFC-нормализованным case-insensitive issuer/account,
-  secret bytes, algorithm, digits и period. Display name не входит в ключ.
-- При `REPLACE` сохранять ID и createdAt существующей записи, чтобы синхронизация
-  не сбрасывала favorite на часах. Вся выбранная пачка изменяет revision один раз.
-- Не оставлять импортированные secrets в Activity после импорта, отмены или destroy;
-  `pendingImportEntries` должен очищаться с занулением byte arrays.
+## Импорт
 
-## Инварианты Garmin
+- Одиночный формат — только `otpauth://totp`.
+- Google Authenticator export поддерживает protobuf payload versions 1/2 и
+  multi-batch по `batchId`, `batchIndex`, `batchSize`; неизвестные поля пропускаются
+  по protobuf wire type.
+- `otpauth://totp` декодируется ровно один раз; secret обязателен, Base32 должен быть
+  валиден, issuer в label/query согласован. Пробелы и дефисы допустимо нормализовать
+  только при ручном вводе.
+- Ошибка одной записи не отменяет остальные корректные записи пачки. Отчёт содержит
+  только безопасные категории и количества.
+- Поддерживаются SHA-1/SHA-256, 6/8 digits, period 5–300 и secret 1–1024 bytes.
+  HOTP, SHA-512 и MD5 отклоняются.
+- Дубликат: NFC/case-insensitive issuer/account + secret + algorithm + digits +
+  period. Display name не входит в ключ.
+- `REPLACE` сохраняет ID и createdAt. Вся импортируемая пачка увеличивает revision
+  один раз.
+- Pending import data очищается с занулением secret arrays после import, cancel
+  или destroy.
+- Google Code Scanner не требует `CAMERA`; не добавлять permission без смены
+  scanner implementation.
 
-- `Application.Storage` содержит plaintext — это принятое ограничение. Не создавать видимость защищённого хранения.
-- Snapshot принимается только через staging. До переключения active storage проверить protocol version, transfer ID, последовательность chunks, count, revision и SHA-256 snapshot hash.
-- Active snapshot хранит entries/revision/last transfer в одном dictionary под
-  `active_snapshot` и переключается одним `Storage.setValue`; staging целиком хранится
-  под `staging_snapshot`. Не возвращать раздельные metadata keys.
-- Staging очищается после terminal error, успешного commit, нового валидного BEGIN
-  и команды очистки. Receiver принимает максимум 100 записей, имя до 128 символов и
-  secret 1–1024 байта с элементами 0–255.
-- Старые revision отклоняются; повторный commit последнего transfer должен быть идемпотентным.
-- После commit сохранить favorite, если запись существует; иначе выбрать первую запись или очистить favorite.
-- Команда очистки `d` удаляет active, staging, favorite, revision и last transfer,
-  отвечает `z` только после удаления и не меняет Android repository. Это логическое
-  удаление, не secure erase flash.
-- Не логировать secrets, codes, checksum, имена записей и message dictionaries. Для диагностики транспорта допустимы только тип сообщения, transfer ID, revision, число записей, sequence, статусы и безопасные тексты ошибок.
+## Garmin
 
-Glance:
+- `Application.Storage` содержит plaintext — не создавать видимость защищённого
+  хранения.
+- Целевой экран — круглый AMOLED 454×454 с touch и аппаратными кнопками. Лимиты
+  профиля: 768 KiB foreground и 64 KiB glance.
+- Active snapshot целиком хранится под `active_snapshot`, staging —
+  `staging_snapshot`, favorite — `favorite`. Active переключается одним
+  `Storage.setValue`.
+- До commit проверять protocol version, transfer ID, sequence, count, revision,
+  entry bounds и SHA-256. Максимум: 100 записей, name 128 chars, secret 1024 bytes.
+- Staging очищается после terminal error, успешного commit, нового valid BEGIN и
+  команды очистки.
+- Старые revision отклоняются; повтор commit последнего transfer идемпотентен.
+- После commit сохранять существующий favorite, иначе выбирать первую запись или
+  очищать favorite.
+- Команда `d` удаляет active/staging/favorite и отвечает `z` только после удаления.
+- Индекс выбранной записи ограничивать до обращения к массиву. Длинные Unicode-имена
+  сокращать без повреждения строки; invalid active snapshot показывает состояние
+  повреждённого хранилища.
+- Не логировать secret, code, name, checksum, transfer ID или message dictionary.
 
-- Лимит профиля — 64 KiB. Код, нужный glance, отмечается `(:glance)` и должен оставаться минимальным.
-- `AppBase.initialize()` исполняется в glance context: он не должен создавать `TotpView` или timer. Полноэкранный view создаётся только в `getInitialView()`.
-- Phone messages обрабатывает background `ServiceDelegate`, зарегистрированный через `Background.registerForPhoneAppMessageEvent()`. Не возвращать foreground-only mailbox callback: синхронизация должна работать при закрытом watch app.
-- Glance читает только favorite и вычисляет код при `onUpdate`. Garmin OS управляет частотой обновления; не обещать посекундное обновление glance.
-- `TotpStore` и `TotpCore` используются одновременно из glance и background sync, поэтому классы должны сохранять multi-slice annotation `(:glance, :background)`. Одна `:glance` приводит на устройстве к `Class not available to 'Background'`.
-- Односимвольные значения Garmin Mobile SDK могут приходить в Monkey C как динамический `String`, `Char` или `Symbol`. Типы сообщений нужно нормализовать через `syncMessageType`, а строки протокола, transfer ID и checksum сравнивать по значению через `.equals()`/`totpValuesEqual`; прямое сравнение ломает обмен ошибками `Unknown message`, `Wrong transfer` или `Checksum mismatch`.
-- Текущая build statistics: glance code 5699 bytes/static data 2146 bytes;
-  background code 5201 bytes/static data 2074 bytes. После изменения glance или
-  background sync повторить build stats и аппаратную проверку heap.
+Glance/background:
 
-TOTP:
-
-- Garmin `HashBasedMessageAuthenticationCode` на целевом runtime принимает SHA-256, но отклоняет SHA-1.
-- HMAC-SHA1 реализован через нативный `Cryptography.Hash(HASH_SHA1)` по ipad/opad-схеме. Не заменять его попыткой передать `HASH_SHA1` в native HMAC.
-- Любое изменение TOTP core должно проходить RFC 6238 SHA-1 и SHA-256 tests на Android и Garmin Simulator.
+- Glance имеет лимит 64 KiB. Нужный ему код отмечается `(:glance)` и остаётся
+  минимальным.
+- `AppBase.initialize()` работает в glance context и не создаёт `TotpView`/timer.
+- Phone messages принимает background `ServiceDelegate`, зарегистрированный через
+  `Background.registerForPhoneAppMessageEvent()`.
+- `TotpStore` и `TotpCore` используются glance и background и должны сохранять
+  `(:glance, :background)`.
+- Односимвольный тип сообщения может прийти как `String`, `Char` или `Symbol`.
+  Нормализовать через `syncMessageType`; строки сравнивать по значению через
+  `.equals()`/`totpValuesEqual`.
+- Garmin HMAC-SHA1 реализован через `Cryptography.Hash(HASH_SHA1)` по ipad/opad.
+  Не заменять native HMAC с `HASH_SHA1`.
 
 ## Sync protocol
 
-- Android отправляет полный snapshot: begin, один chunk на запись, commit; часы отвечают ACK только после валидации и переключения active storage.
-- Android показывает успех только после ACK совпадающей revision.
-- Любой ACK/error принимается только при наличии точного active transfer ID;
-  ответы без `x` больше не поддерживаются.
-- Проект рассчитан на одни часы: Android не хранит отдельную target-watch привязку и
-  использует первое подключённое Garmin-устройство. Очистка не должна требовать
-  предварительной синхронизации; входящие ответы принимаются только от active device.
-- Каждый асинхронный send callback и timeout должен проверять активный transfer ID.
-  Иначе позднее событие отменённой/истёкшей передачи может повредить следующий retry.
-- Отмена допустима только до отправки commit. На commit/ACK UI блокирует отмену,
-  потому что активный snapshot на часах уже мог быть переключён.
-- Checksum обнаруживает случайное повреждение, но не является MAC и не обеспечивает аутентичность.
-- Не добавлять transport crypto, ECDH, SAS или application pairing.
-- Garmin сообщения содержат secrets; запрещено печатать объект сообщения даже в debug build.
+- Android отправляет полный snapshot: begin, chunk на запись, commit. ACK принимается
+  только после атомарного переключения active storage.
+- Любой ACK/error требует точного active transfer ID и active device.
+- Проект использует первое подключённое Garmin-устройство и не хранит отдельный
+  target-watch pairing.
+- Каждый async callback и timeout проверяет active transfer ID; позднее событие
+  старой операции не должно влиять на retry.
+- Timeout ожидания ACK — 30 секунд.
+- Отмена допустима только до commit. Во время commit/ACK отмена блокируется.
+- Текст ошибки от часов не отражать напрямую в UI/logcat: использовать фиксированные
+  безопасные категории.
+- Checksum не является MAC. Не добавлять ECDH, SAS, transport crypto или pairing.
 
-## Обязательная проверка изменений
+## Обязательная проверка
 
 Android:
 
@@ -133,11 +193,11 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 ./gradlew lintRelease assembleRelease
 ```
 
-`connectedDebugAndroidTest` очищает БД и Keystore key debug package. Запускать его
-только на чистом эмуляторе/тестовом устройстве без реальных секретов; при конфликте
-подписи не удалять пользовательское приложение автоматически.
+`connectedDebugAndroidTest` очищает БД и key debug-пакета. Запускать только на чистом
+эмуляторе/тестовом устройстве без реальных секретов; пользовательское приложение при
+конфликте подписи автоматически не удалять.
 
-Garmin — использовать `CONNECTIQ_HOME` и developer key вне репозитория:
+Garmin:
 
 ```bash
 cd garmin
@@ -148,26 +208,19 @@ cd garmin
 "$CONNECTIQ_HOME/bin/monkeydo" bin/TOTP-mixalich7b-tests.prg fenix8pro47mm -t
 ```
 
-У Garmin compiler допустимы текущие warnings о динамическом типе контейнеров wire protocol, но новые errors/crashes недопустимы. `monkeydo` может вернуть non-zero при итоговом `PASSED`; проверять текстовый итог tests.
-
-После изменения lifecycle выполнить обычный Simulator smoke-test. После изменения sync, glance, storage или UI обязательна ручная проверка на реальных fēnix 8 Pro. Аппаратная regression-конфигурация подтверждена владельцем проекта на Android 16/Xiaomi 17 и fēnix 8 Pro 47 mm firmware 22.35; это исходная regression-конфигурация. Stable baseline — версия `0.1.1`, protocol v1, квалифицированная 25 июня 2026 года после чистой установки и проверки QR, sync при закрытом watch app, interrupted transfer, clear, favorite и glance.
+`monkeydo` может вернуть non-zero при итоговом `PASSED`; проверять текстовый итог.
+После изменения glance/background проверять build stats и лимит heap. После
+изменения sync, storage, lifecycle, glance или Garmin UI выполнять Simulator smoke
+и ручную проверку на Android 16/Xiaomi 17 и fēnix 8 Pro 47 mm/firmware 22.35.
 
 ## Документация
 
-- `README.md`, `docs/BUILDING.md`, `docs/SECURITY.md` и `docs/DEVELOPMENT.md` пишутся для людей: назначение, сборка, эксплуатационные ограничения и понятные архитектурные решения.
-- Агентские guardrails, команды обязательной проверки и детали внутренних инвариантов поддерживать здесь.
-- При изменении пользовательского поведения обновлять README; при изменении сборки — `docs/BUILDING.md`; модели угроз — `docs/SECURITY.md`; wire format — `protocol/schema.md`.
+- Пользовательское поведение и краткие возможности — `README.md`.
+- Сборка, тесты и установка — `docs/BUILDING.md`.
+- Архитектура и эксплуатационные нюансы — `docs/DEVELOPMENT.md`.
+- Модель угроз — `docs/SECURITY.md`.
+- Текущие артефакты — `docs/RELEASE.md`.
+- Wire format — `protocol/schema.md`.
 
-## Официальные справочные материалы
-
-- [Garmin Connect IQ Glances](https://developer.garmin.com/connect-iq/core-topics/glances/)
-- [Garmin Connect IQ Security](https://developer.garmin.com/connect-iq/core-topics/security/)
-- [Garmin Connect IQ Mobile SDK for Android](https://developer.garmin.com/connect-iq/core-topics/mobile-sdk-for-android/)
-- [Garmin Toybox.Cryptography](https://developer.garmin.com/connect-iq/api-docs/Toybox/Cryptography.html)
-- [Garmin Toybox.Application.Storage](https://developer.garmin.com/connect-iq/api-docs/Toybox/Application/Storage.html)
-- [RFC 4226 — HOTP](https://www.rfc-editor.org/rfc/rfc4226)
-- [RFC 6238 — TOTP](https://www.rfc-editor.org/rfc/rfc6238)
-- [Android Keystore](https://developer.android.com/privacy-and-security/keystore)
-- [KeyGenParameterSpec.Builder](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)
-- [Google Code Scanner](https://developers.google.com/ml-kit/vision/barcode-scanning/code-scanner)
-- [Android SQLiteOpenHelper](https://developer.android.com/reference/android/database/sqlite/SQLiteOpenHelper)
+Не превращать документацию в журнал работ: не добавлять завершённые планы, даты
+промежуточных проверок, перечни исправленных дефектов или хронологию разработки.

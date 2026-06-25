@@ -1,114 +1,106 @@
-# Архитектура и ограничения
+# Архитектура и разработка
 
-Android-приложение является источником истины для списка TOTP-записей. Часы получают полный snapshot, после чего вычисляют коды полностью офлайн. На часах можно только просматривать коды и выбирать запись для glance.
+## Общая модель
+
+Android-приложение — источник истины для TOTP-записей. Часы получают полный snapshot,
+хранят его локально и вычисляют коды без телефона. Редактирование записей на часах
+не поддерживается; локально выбирается только favorite для glance.
+
+Запись содержит UUID, display name, issuer, account, secret, алгоритм, число цифр,
+период и служебные timestamps/revision. Допустимы SHA-1/SHA-256, 6/8 цифр, период
+5–300 секунд, secret длиной 1–1024 декодированных байта и название длиной до
+128 символов.
+
+TOTP рассчитывается по RFC 4226/6238 из системного UTC Unix time. Приложение не
+имеет внешнего источника времени и не может определить небольшое расхождение часов.
 
 ## Android
 
-Приложение использует Kotlin и стандартные Android-компоненты: `Activity`, `ListView`, диалоги и `SQLiteOpenHelper`. Это сохраняет проект небольшим и уменьшает число build-time зависимостей.
+Приложение написано на Kotlin и использует стандартные `Activity`, `ListView`,
+диалоги и `SQLiteOpenHelper`.
 
-Все содержательные поля записи шифруются AES-256-GCM с ключом Android Keystore. Биометрия и PIN приложения не требуются. QR распознаётся Google Code Scanner, поэтому для этой функции нужны Google Play services; AOSP-эмулятор без Google APIs не подходит.
+- `MainActivity` строит UI, запускает операции хранилища в последовательном executor
+  и координирует импорт и синхронизацию.
+- `SecureEntryRepository` хранит зашифрованные записи и атомарно изменяет revision.
+- `TotpCore` содержит модель записи, Base32, TOTP и парсер `otpauth://totp`.
+- `MigrationParser` и `MigrationBatchCollector` разбирают одно- и многочастный
+  экспорт Google Authenticator.
+- `ImportPlanner` определяет дубликаты и строит атомарный план импорта.
+- `GarminSyncManager` управляет Garmin Mobile SDK, состояниями передачи,
+  timeout/cancel и очисткой часов.
+- `SyncProtocol` формирует канонический SHA-256 snapshot.
+
+Google Code Scanner требует Google Play services и не требует `CAMERA` permission.
+Перед импортом показывается preview. Ошибка отдельной записи экспорта Google
+Authenticator не блокирует остальные корректные TOTP-записи.
+
+Дубликат определяется по NFC-нормализованным без учёта регистра issuer/account,
+secret и параметрам TOTP. При замене сохраняются ID и время создания существующей
+записи, а revision всей выбранной пачки увеличивается один раз.
 
 ## Garmin
 
-Watch app и glance находятся в одном Connect IQ package. Полноэкранный экран показывает вертикальный список, а glance — выбранную запись. Поддерживаются SHA-1 и SHA-256; SHA-512 и HOTP не поддерживаются.
+Watch app и glance входят в один Connect IQ package.
+Целевой профиль имеет круглый экран 454×454, touch, аппаратные кнопки, лимит
+768 KiB для foreground app и 64 KiB для glance.
 
-Секреты на часах хранятся без дополнительного шифрования в `Application.Storage`. Частоту обновления glance определяет Garmin OS, поэтому постоянное посекундное обновление вне открытого приложения не гарантируется.
+- `TotpMixalich7bApp` регистрирует background mailbox и создаёт foreground/glance UI.
+- `TotpView` показывает список и обрабатывает кнопки и touch-жесты.
+- `TotpGlanceView` читает favorite и вычисляет код при обновлении glance.
+- `TotpStore` валидирует и атомарно переключает active snapshot через staging.
+- `TotpSyncServiceDelegate` принимает сообщения телефона в background context.
+- `TotpCore` реализует TOTP и канонический snapshot hash.
+
+Glance обновляется с частотой, выбранной Garmin OS; посекундное обновление вне
+открытого приложения не гарантируется. Нажатие на glance открывает watch app.
+
+HMAC-SHA1 реализован через `Cryptography.Hash(HASH_SHA1)` по ipad/opad-схеме:
+целевой runtime принимает SHA-256 в native HMAC, но отклоняет SHA-1.
 
 ## Синхронизация
 
-Android отправляет полный snapshot через Garmin Connect IQ Mobile SDK. Часы проверяют целостность и применяют его только целиком; незавершённая передача не заменяет рабочие данные. Подробный формат находится в [protocol/schema.md](../protocol/schema.md).
+Android отправляет `BEGIN`, по одному `CHUNK` на запись и `COMMIT`. Часы проверяют
+protocol version, transfer ID, sequence, count, revision и SHA-256, после чего одной
+операцией заменяют active snapshot. Незавершённая или повреждённая передача не
+заменяет рабочие данные. Точный wire format описан в
+[protocol/schema.md](../protocol/schema.md).
 
-Дополнительное прикладное шифрование транспорта и отдельный pairing не используются. Для синхронизации нужен Garmin Connect и уже подключённые к нему часы.
+Android принимает ответы только от активного устройства и для текущего transfer ID.
+Поздние callbacks и timeout старой операции игнорируются. Отмена доступна до
+отправки commit; после commit UI ждёт ACK, поскольку snapshot уже мог быть применён.
 
-Для диагностики обмена debug-сборка Android пишет стандартный logcat с тегом
-`TotpGarminSync`, а Garmin — строки с префиксом `TOTP sync` через `System.println`.
-В Android release logging отключён. Garmin-логи содержат только известный тип
-сообщения, безопасную категорию результата и revision успешного commit — без
-transfer ID, секретов, имён записей, checksum и payload.
+Проект рассчитан на одни часы и использует первое подключённое Garmin-устройство.
+Для обмена необходимы Garmin Connect, существующее сопряжение и установленное
+Garmin-приложение с тем же UUID.
+
+## Диагностика
+
+Debug-сборка Android пишет безопасные события обмена с тегом `TotpGarminSync`:
 
 ```bash
 adb logcat -s TotpGarminSync
 ```
 
-## Статус
+Garmin использует `System.println` с префиксом `TOTP sync`. Логи не должны содержать
+секреты, коды, имена записей, checksum, transfer ID или словари сообщений.
 
-Обе части собираются, Android unit-тесты и Garmin RFC-тесты проходят в симуляторах.
-Владелец проекта повторил аппаратную regression-проверку 22 июня 2026 года на
-связке Xiaomi 17 с Android 16 и fēnix 8 Pro 47 mm с firmware 22.35. Подтверждены
-background delegate, полный цикл snapshot/ACK, обновлённый UI синхронизации и
-немедленная подтверждаемая очистка данных часов. Эти сценарии нужно повторять после
-изменений lifecycle, синхронизации, storage или Garmin UI.
+## Проверки при изменениях
 
-Усиление автоматических тестов, пользовательские сценарии и квалификация стабильной
-sideload-версии завершены. Версия `0.1.1` признана stable 25 июня 2026 года после
-54 unit-тестов, 7 instrumentation-тестов, Android lint без issues, 12 Garmin
-Simulator tests, чистой установки и повторной аппаратной проверки QR, sync при
-закрытом watch app, interrupted transfer, clear, favorite и glance. Параметры
-итоговых артефактов находятся в [RELEASE.md](RELEASE.md).
+TOTP core должен проходить RFC 6238 SHA-1/SHA-256 тесты на обеих платформах.
+Android persistence проверяется unit- и instrumentation-тестами с реальными SQLite
+и Android Keystore. Garmin test PRG проверяет storage, protocol validation,
+атомарность commit, retry и очистку.
 
-Android storage/UI instrumentation-набор из семи тестов успешно выполнен 22 июня
-2026 года на эмуляторе Android 16/API 36 (`sdk_gphone64_arm64`). Проверены реальный
-Android Keystore и SQLite, уникальность IV, отсутствие plaintext в колонках, потеря
-Keystore key, явный reset, повреждение GCM tag, а также атомарная замена записи с
-сохранением ID и единственным увеличением revision для всей операции. Preview
-позволяет выбрать записи, а политика дубликатов применяется ко всей выбранной пачке.
+После изменений sync, storage, glance, lifecycle или Garmin UI нужна ручная
+проверка на целевых устройствах: синхронизация при закрытом watch app, прерванная
+передача и retry, очистка, favorite, glance и открытие watch app из glance.
 
-Расширенный Garmin test PRG успешно выполнен 22 июня 2026 года в Connect IQ Device
-Simulator 9.2.0 для `fenix8pro47mm` (runtime API 6.0.2): 12 тестов, 12 PASS. Проверены
-RFC 6238 SHA-1/SHA-256, канонический snapshot hash, представления типов сообщений,
-атомарный commit, stale revision, checksum, count/sequence/transfer ID, потеря,
-перестановка и повтор chunks, а также полная логическая очистка watch storage.
-`monkeydo` вернул exit code 1 при итоговой строке
-`PASSED (passed=12, failed=0, errors=0)`; результат следует определять по текстовому
-итогу. Перед успешным запуском старый процесс Simulator пришлось полностью завершить
-и запустить заново; PRG был подписан постоянным developer key проекта.
+Команды приведены в [BUILDING.md](BUILDING.md).
 
-Android unit-набор содержит 54 теста, включая transport response correlation,
-message builder, repository ownership и строгую migration version.
-Детерминированные property/fuzz-сценарии
-проверяют случайные Base32 secrets, Unicode `otpauth://` URI, произвольные и
-усечённые protobuf migration payload и свойства канонического snapshot hash.
-Максимальная длина декодированного secret — 1024 байта; это единый предел input
-model и storage codec, исключающий создание записи, которую нельзя прочитать после
-перезапуска.
+## Runtime-зависимости
 
-Google Authenticator migration parser обрабатывает ошибки на уровне отдельной
-записи. HOTP, неподдерживаемые algorithm/digits и повреждённые элементы не
-сохраняются и показываются пользователю в сводном отчёте; остальные корректные
-TOTP-записи из той же одно- или многочастной миграции можно импортировать.
+- AndroidX Core KTX 1.19.0;
+- Garmin Connect IQ Companion SDK 2.4.0;
+- Google Play services Code Scanner 16.1.0.
 
-Синхронизация отображает подготовку, прогресс chunks, commit и ожидание ACK. Кнопка
-позволяет отменить передачу до commit и повторить её после ошибки. На commit/ACK
-отмена блокируется, так как часы уже могли применить snapshot. Callback отправки
-и timeout проверяют активный transfer ID: опоздавшее событие отменённой передачи не
-может продолжить старую очередь во время retry. Ответы Garmin сопоставляются с
-фиксированными безопасными категориями; произвольный текст часов не отражается в UI
-или logcat.
-
-Проект рассчитан на одни часы, поэтому Android использует первое подключённое
-устройство Garmin и не хранит отдельную локальную привязку. Подтверждаемая команда
-`d` отправляется сразу, без предварительной синхронизации, удаляет единые
-active/staging snapshot objects и favorite на часах и получает ACK `z`; Android repository при
-этом не меняется.
-
-## Зависимости release
-
-Аудит `releaseRuntimeClasspath` выполнен 22 июня 2026 года. Прямые runtime-зависимости:
-
-- Kotlin stdlib 2.2.10 и AndroidX Core KTX 1.19.0 — Apache License 2.0;
-- Garmin Connect IQ Companion SDK 2.4.0 — Garmin Connect IQ SDK License Agreement
-  и Connect IQ Application Developer Agreement;
-- Google Play services Code Scanner 16.1.0 — ML Kit Terms of Service.
-
-Полное транзитивное дерево формируется без установки дополнительных плагинов:
-
-```bash
-cd android
-./gradlew :app:dependencies --configuration releaseRuntimeClasspath
-```
-
-В проекте нет настроенных analytics или crash-reporting SDK; Code Scanner при этом
-транзитивно включает Google DataTransport для внутренних функций Google-компонентов.
-Проверка production sources и release output не выявила встроенных TOTP test
-secrets, локальных БД, screenshots или журналов; RFC/test vectors находятся только
-в test source sets.
+Analytics и crash-reporting SDK в проекте отсутствуют.
