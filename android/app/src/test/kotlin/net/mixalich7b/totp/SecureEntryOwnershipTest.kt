@@ -10,7 +10,7 @@ class SecureEntryOwnershipTest {
         val callerSecret = byteArrayOf(1, 2, 3, 4)
         val entry = TotpEntry("id", "Test", "", "", callerSecret)
 
-        val owned = repositoryOwnedCopy(entry, revision = 7, updatedAt = 42)
+        val owned = repositoryOwnedCopy(entry, updatedAt = 42)
         owned.secret.fill(0)
 
         assertFalse(callerSecret === owned.secret)

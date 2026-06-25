@@ -296,9 +296,13 @@ class MainActivity : Activity() {
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                     runStorage(
                         operation = { repository.add(listOf(entry)) },
-                        onSuccess = {
+                        onSuccess = { revision ->
+                            val savedEntry = repositoryOwnedCopy(entry, System.currentTimeMillis())
                             dialog.dismiss()
-                            reload()
+                            entries.add(savedEntry)
+                            adapter.notifyDataSetChanged()
+                            statusView.text = getString(R.string.local_status, revision, entries.size)
+                            emptyView.text = getString(R.string.empty_secrets)
                         },
                         onFailure = { error ->
                             dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
@@ -446,13 +450,13 @@ class MainActivity : Activity() {
                 runStorage(
                     operation = { repository.importEntries(plan.entriesToWrite) },
                     onSuccess = {
-                        reload {
-                            statusView.text = getString(
-                                R.string.import_complete,
-                                plan.entriesToWrite.size,
-                                plan.duplicateCount,
-                            )
-                        }
+                        applyImportedEntries(plan.entriesToWrite)
+                        statusView.text = getString(
+                            R.string.import_complete,
+                            plan.entriesToWrite.size,
+                            plan.duplicateCount,
+                        )
+                        emptyView.text = getString(R.string.empty_secrets)
                     },
                     onFinished = { clearPendingImport() },
                 )
@@ -471,6 +475,21 @@ class MainActivity : Activity() {
         pendingImportEntries = null
     }
 
+    private fun applyImportedEntries(imported: List<TotpEntry>) {
+        imported.forEach { incoming ->
+            val saved = repositoryOwnedCopy(incoming, System.currentTimeMillis())
+            val index = entries.indexOfFirst { it.id == saved.id }
+            if (index >= 0) {
+                val previous = entries[index]
+                previous.secret.fill(0)
+                entries[index] = saved
+            } else {
+                entries.add(saved)
+            }
+        }
+        adapter.notifyDataSetChanged()
+    }
+
     private fun confirmDelete(entry: TotpEntry) {
         AlertDialog.Builder(this)
             .setTitle(R.string.dialog_delete_record)
@@ -479,7 +498,16 @@ class MainActivity : Activity() {
             .setPositiveButton(R.string.action_delete) { _, _ ->
                 runStorage(
                     operation = { repository.delete(entry.id) },
-                    onSuccess = { reload() },
+                    onSuccess = { revision ->
+                        val removedIndex = entries.indexOfFirst { it.id == entry.id }
+                        if (removedIndex >= 0) {
+                            val removed = entries.removeAt(removedIndex)
+                            removed.secret.fill(0)
+                        }
+                        adapter.notifyDataSetChanged()
+                        statusView.text = getString(R.string.local_status, revision, entries.size)
+                        emptyView.text = getString(R.string.empty_secrets)
+                    },
                 )
             }
             .show()

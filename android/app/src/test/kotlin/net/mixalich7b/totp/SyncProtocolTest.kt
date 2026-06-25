@@ -78,7 +78,6 @@ class SyncProtocolTest {
                 accountName = original.accountName + "x",
                 createdAt = original.createdAt + 1,
                 updatedAt = original.updatedAt + 1,
-                revision = original.revision + 1,
             )
             assertEquals(baseline, SnapshotHasher.sha256(mutated(nonTransmittedChange)))
             if (entries.size > 1) assertNotEquals(baseline, SnapshotHasher.sha256(entries.reversed()))
@@ -109,6 +108,5 @@ class SyncProtocolTest {
         periodSeconds = random.nextInt(5, 301),
         createdAt = random.nextLong(),
         updatedAt = random.nextLong(),
-        revision = random.nextLong(),
     )
 }

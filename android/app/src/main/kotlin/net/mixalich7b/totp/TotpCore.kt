@@ -35,7 +35,6 @@ data class TotpEntry(
     val periodSeconds: Int = 30,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val revision: Long = 0,
 ) {
     init {
         require(displayName.isNotBlank()) { "Название обязательно" }
@@ -55,7 +54,7 @@ data class TotpEntry(
         id == other.id && displayName == other.displayName && issuer == other.issuer &&
         accountName == other.accountName && secret.contentEquals(other.secret) &&
         algorithm == other.algorithm && digits == other.digits && periodSeconds == other.periodSeconds &&
-        createdAt == other.createdAt && updatedAt == other.updatedAt && revision == other.revision
+        createdAt == other.createdAt && updatedAt == other.updatedAt
 
     override fun hashCode(): Int = id.hashCode()
 

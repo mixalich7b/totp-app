@@ -40,7 +40,7 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
                     val schema = cursor.getInt(2)
                     val plaintext = crypto.decrypt(id, revision, schema, cursor.getBlob(3), cursor.getBlob(4))
                     try {
-                        result += EntryCodec.decode(plaintext).copy(id = id, revision = revision)
+                        result += EntryCodec.decode(plaintext).copy(id = id)
                     } finally {
                         plaintext.fill(0)
                     }
@@ -62,12 +62,12 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
     private fun write(entries: List<TotpEntry>, replaceExisting: Boolean): Long {
         if (entries.isEmpty()) return revision()
         val db = database.writableDatabase
-        var nextRevision = 0L
+        var nextRevision: Long
         db.beginTransaction()
         try {
             nextRevision = revision(db) + 1
             entries.forEach { entry ->
-                val normalized = repositoryOwnedCopy(entry, nextRevision, System.currentTimeMillis())
+                val normalized = repositoryOwnedCopy(entry, System.currentTimeMillis())
                 try {
                     val plaintext = EntryCodec.encode(normalized)
                     try {
@@ -154,8 +154,8 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
     }
 }
 
-internal fun repositoryOwnedCopy(entry: TotpEntry, revision: Long, updatedAt: Long): TotpEntry =
-    entry.copy(secret = entry.secret.copyOf(), revision = revision, updatedAt = updatedAt)
+internal fun repositoryOwnedCopy(entry: TotpEntry, updatedAt: Long): TotpEntry =
+    entry.copy(secret = entry.secret.copyOf(), updatedAt = updatedAt)
 
 private class EntryDatabase(context: Context) : SQLiteOpenHelper(
     context,
