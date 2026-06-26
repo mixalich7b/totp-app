@@ -136,6 +136,43 @@ class SecureEntryRepositoryInstrumentedTest {
     }
 
     @Test
+    fun testUpdatePreservesIdentitySecretCreationTimeAndListPosition() {
+        val secret = byteArrayOf(1, 2, 3)
+        SecureEntryRepository(context).use { repository ->
+            repository.add(
+                listOf(
+                    entry("edited-id", "Old name", "Old issuer", secret),
+                    entry("remaining-id", "Remaining", "", byteArrayOf(4)),
+                ),
+            )
+            val stored = repository.list().first()
+            val edited = stored.copy(
+                displayName = "New name",
+                issuer = "New issuer",
+                accountName = "new account",
+                algorithm = TotpAlgorithm.SHA256,
+                digits = 8,
+                periodSeconds = 45,
+            )
+
+            assertEquals(2L, repository.update(edited))
+
+            val restored = repository.list()
+            assertEquals(listOf("edited-id", "remaining-id"), restored.map(TotpEntry::id))
+            assertEquals("New name", restored.first().displayName)
+            assertEquals("New issuer", restored.first().issuer)
+            assertEquals("new account", restored.first().accountName)
+            assertEquals(TotpAlgorithm.SHA256, restored.first().algorithm)
+            assertEquals(8, restored.first().digits)
+            assertEquals(45, restored.first().periodSeconds)
+            assertEquals(stored.createdAt, restored.first().createdAt)
+            assertTrue(stored.secret.contentEquals(restored.first().secret))
+            assertTrue(secret.contentEquals(byteArrayOf(1, 2, 3)))
+            assertEquals(2L, repository.revision())
+        }
+    }
+
+    @Test
     fun testCorruptedGcmTagIsRejected() {
         SecureEntryRepository(context).use { repository ->
             repository.add(listOf(entry("corrupt", "Corrupt", "", byteArrayOf(4, 3, 2, 1))))

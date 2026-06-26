@@ -33,11 +33,21 @@ internal class EntryEditorController(
         dimenPx(R.dimen.totp_dialog_field_gap)
 
     fun showAddDialog() {
+        showEntryDialog(existingEntry = null)
+    }
+
+    fun showEditDialog(entry: TotpEntry) {
+        showEntryDialog(existingEntry = entry)
+    }
+
+    private fun showEntryDialog(existingEntry: TotpEntry?) {
         val name = field(R.string.field_name)
         val issuer = field(R.string.field_issuer_optional)
         val account = field(R.string.field_account_optional)
-        val secret = field(R.string.field_base32_secret).apply {
-            configureSecretInput()
+        val secret = if (existingEntry == null) {
+            field(R.string.field_base32_secret).apply { configureSecretInput() }
+        } else {
+            null
         }
         val algorithm = Spinner(activity).apply {
             adapter = ArrayAdapter(
@@ -57,7 +67,15 @@ internal class EntryEditorController(
             setText(R.string.default_period)
             inputType = InputType.TYPE_CLASS_NUMBER
         }
-        val fields = listOf(name, issuer, account, secret, algorithm, digits, period)
+        existingEntry?.let { entry ->
+            name.setText(entry.displayName)
+            issuer.setText(entry.issuer)
+            account.setText(entry.accountName)
+            algorithm.setSelection(entry.algorithm.ordinal)
+            digits.setSelection(if (entry.digits == 6) 0 else 1)
+            period.setText(entry.periodSeconds.toString())
+        }
+        val fields = listOfNotNull(name, issuer, account, secret, algorithm, digits, period)
         val form = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(
@@ -77,7 +95,13 @@ internal class EntryEditorController(
             }
         }
         val dialog = AlertDialog.Builder(activity)
-            .setTitle(R.string.dialog_new_totp)
+            .setTitle(
+                if (existingEntry == null) {
+                    R.string.dialog_new_totp
+                } else {
+                    R.string.dialog_edit_totp
+                },
+            )
             .setView(form)
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_save, null)
@@ -85,33 +109,69 @@ internal class EntryEditorController(
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 try {
-                    val entry = TotpEntry(
-                        displayName = name.text.toString().trim(),
-                        issuer = issuer.text.toString().trim(),
-                        accountName = account.text.toString().trim(),
-                        secret = Base32.decode(secret.text.toString()),
-                        algorithm = TotpAlgorithm.fromName(algorithm.selectedItem.toString()),
-                        digits = if (digits.selectedItemPosition == 0) 6 else 8,
-                        periodSeconds = period.text.toString().toInt(),
-                    )
+                    val displayName = name.text.toString().trim()
+                    val issuerValue = issuer.text.toString().trim()
+                    val accountValue = account.text.toString().trim()
+                    val algorithmValue =
+                        TotpAlgorithm.fromName(algorithm.selectedItem.toString())
+                    val digitsValue = if (digits.selectedItemPosition == 0) 6 else 8
+                    val periodValue = period.text.toString().toInt()
+                    val entry = if (existingEntry == null) {
+                        TotpEntry(
+                            displayName = displayName,
+                            issuer = issuerValue,
+                            accountName = accountValue,
+                            secret = Base32.decode(checkNotNull(secret).text.toString()),
+                            algorithm = algorithmValue,
+                            digits = digitsValue,
+                            periodSeconds = periodValue,
+                        )
+                    } else {
+                        existingEntry.copy(
+                            displayName = displayName,
+                            issuer = issuerValue,
+                            accountName = accountValue,
+                            algorithm = algorithmValue,
+                            digits = digitsValue,
+                            periodSeconds = periodValue,
+                        )
+                    }
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                     screen.setMutationControlsEnabled(false)
-                    entryStore.add(
-                        entry = entry,
-                        onSuccess = { revision ->
-                            dialog.dismiss()
-                            entryCollection.addCopy(entry, System.currentTimeMillis())
-                            screen.refreshEntries()
-                            screen.showLocalStatus(revision, entryCollection.size)
-                            screen.setMutationControlsEnabled(true)
-                        },
-                        onFailure = { error ->
-                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
-                            screen.setMutationControlsEnabled(true)
-                            onError(error)
-                        },
-                        onFinished = { entry.secret.fill(0) },
-                    )
+                    if (existingEntry == null) {
+                        entryStore.add(
+                            entry = entry,
+                            onSuccess = { revision ->
+                                dialog.dismiss()
+                                entryCollection.addCopy(entry, System.currentTimeMillis())
+                                screen.refreshEntries()
+                                screen.showLocalStatus(revision, entryCollection.size)
+                                screen.setMutationControlsEnabled(true)
+                            },
+                            onFailure = { error ->
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                                screen.setMutationControlsEnabled(true)
+                                onError(error)
+                            },
+                            onFinished = { entry.secret.fill(0) },
+                        )
+                    } else {
+                        entryStore.update(
+                            entry = entry,
+                            onSuccess = { revision ->
+                                dialog.dismiss()
+                                entryCollection.updateCopy(entry, System.currentTimeMillis())
+                                screen.refreshEntries()
+                                screen.showLocalStatus(revision, entryCollection.size)
+                                screen.setMutationControlsEnabled(true)
+                            },
+                            onFailure = { error ->
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                                screen.setMutationControlsEnabled(true)
+                                onError(error)
+                            },
+                        )
+                    }
                 } catch (error: Exception) {
                     screen.setMutationControlsEnabled(true)
                     onError(error)
@@ -119,7 +179,7 @@ internal class EntryEditorController(
             }
         }
         dialog.setOnDismissListener {
-            secret.text?.clear()
+            secret?.text?.clear()
         }
         dialog.show()
     }

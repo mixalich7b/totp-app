@@ -21,6 +21,15 @@ internal class EntryCollection {
         return saved
     }
 
+    fun updateCopy(entry: TotpEntry, updatedAt: Long): TotpEntry {
+        val index = mutableEntries.indexOfFirst { it.id == entry.id }
+        require(index >= 0) { "Редактируемая запись не найдена" }
+        val saved = repositoryOwnedCopy(entry, updatedAt)
+        mutableEntries[index].secret.fill(0)
+        mutableEntries[index] = saved
+        return saved
+    }
+
     fun upsertCopies(importedEntries: List<TotpEntry>, updatedAt: Long) {
         importedEntries.forEach { incoming ->
             val saved = repositoryOwnedCopy(incoming, updatedAt)

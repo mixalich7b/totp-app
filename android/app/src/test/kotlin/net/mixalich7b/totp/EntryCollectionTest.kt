@@ -37,6 +37,24 @@ class EntryCollectionTest {
     }
 
     @Test
+    fun `update replaces in place and keeps an independent secret copy`() {
+        val previous = entry("same", byteArrayOf(1, 2, 3))
+        val remaining = entry("remaining", byteArrayOf(4))
+        val collection = EntryCollection()
+        collection.replaceAll(listOf(previous, remaining))
+        val edited = previous.copy(displayName = "Edited")
+
+        val stored = collection.updateCopy(edited, updatedAt = 50)
+
+        assertEquals(listOf("same", "remaining"), collection.entries.map(TotpEntry::id))
+        assertEquals("Edited", stored.displayName)
+        assertEquals(50, stored.updatedAt)
+        assertArrayEquals(byteArrayOf(1, 2, 3), stored.secret)
+        assertArrayEquals(byteArrayOf(0, 0, 0), previous.secret)
+        assertFalse(edited.secret === stored.secret)
+    }
+
+    @Test
     fun `remove clears removed secret`() {
         val removed = entry("removed", byteArrayOf(7, 8))
         val remaining = entry("remaining", byteArrayOf(9))

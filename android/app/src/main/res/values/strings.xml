@@ -16,6 +16,7 @@
     <string name="action_import">Импортировать</string>
     <string name="action_continue">Продолжить</string>
     <string name="action_delete">Удалить</string>
+    <string name="action_edit">Изменить</string>
     <string name="action_reset_storage">Сбросить данные</string>
     <string name="local_status">Локальная revision %1$d; записей: %2$d</string>
     <string name="batch_status">Считано %1$d из %2$d QR; сканируйте следующий</string>
@@ -24,6 +25,7 @@
     <string name="status_scan_canceled">Сканирование отменено</string>
     <string name="error_not_totp_qr">Это не TOTP QR</string>
     <string name="dialog_new_totp">Новый TOTP</string>
+    <string name="dialog_edit_totp">Редактировать TOTP</string>
     <string name="dialog_import_totp">Импортировать TOTP?</string>
     <string name="dialog_import_google_authenticator">Импорт Google Authenticator</string>
     <string name="dialog_import_issues">Не все записи поддерживаются</string>

@@ -59,6 +59,49 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
     @Synchronized
     fun importEntries(entries: List<TotpEntry>): Long = write(entries, replaceExisting = true)
 
+    @Synchronized
+    fun update(entry: TotpEntry): Long {
+        val db = database.writableDatabase
+        var nextRevision: Long
+        db.beginTransaction()
+        try {
+            nextRevision = revision(db) + 1
+            val normalized = repositoryOwnedCopy(entry, System.currentTimeMillis())
+            try {
+                val plaintext = EntryCodec.encode(normalized)
+                try {
+                    val envelope = crypto.encrypt(
+                        normalized.id,
+                        nextRevision,
+                        SCHEMA_VERSION,
+                        plaintext,
+                    )
+                    val updated = db.update(
+                        "entries",
+                        ContentValues().apply {
+                            put("revision", nextRevision)
+                            put("schema_version", SCHEMA_VERSION)
+                            put("iv", envelope.iv)
+                            put("ciphertext", envelope.ciphertext)
+                        },
+                        "id = ?",
+                        arrayOf(normalized.id),
+                    )
+                    check(updated == 1) { "Редактируемая запись не найдена" }
+                } finally {
+                    plaintext.fill(0)
+                }
+            } finally {
+                normalized.secret.fill(0)
+            }
+            setRevision(db, nextRevision)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return nextRevision
+    }
+
     private fun write(entries: List<TotpEntry>, replaceExisting: Boolean): Long {
         if (entries.isEmpty()) return revision()
         val db = database.writableDatabase

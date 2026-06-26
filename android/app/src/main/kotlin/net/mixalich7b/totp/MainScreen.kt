@@ -3,13 +3,17 @@ package net.mixalich7b.totp
 import android.app.Activity
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
+import androidx.annotation.ColorRes
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -20,6 +24,7 @@ internal data class MainScreenActions(
     val synchronize: () -> Unit,
     val clearWatch: () -> Unit,
     val deleteEntry: (TotpEntry) -> Unit,
+    val editEntry: (TotpEntry) -> Unit,
 )
 
 internal class MainScreen(
@@ -34,8 +39,12 @@ internal class MainScreen(
     private val rowTextSizePx = dimen(R.dimen.totp_row_text_size)
     private val rowPaddingHorizontalPx = dimenPx(R.dimen.totp_row_padding_horizontal)
     private val rowPaddingVerticalPx = dimenPx(R.dimen.totp_row_padding_vertical)
+    private val rowActionWidthPx = dimenPx(R.dimen.totp_row_action_width)
+    private val swipeTouchSlop = ViewConfiguration.get(activity).scaledTouchSlop
 
     private val adapter = EntryAdapter()
+    private var openEntryId: String? = null
+    private var openRow: SwipeRow? = null
     private lateinit var statusView: TextView
     private lateinit var emptyView: TextView
     private lateinit var syncButton: Button
@@ -70,10 +79,12 @@ internal class MainScreen(
     }
 
     fun refreshEntries() {
+        closeSwipeActions(animated = false)
         adapter.notifyDataSetChanged()
     }
 
     fun setMutationControlsEnabled(enabled: Boolean) {
+        if (!enabled) closeSwipeActions()
         addButton.isEnabled = enabled
         qrButton.isEnabled = enabled
         clearWatchButton.isEnabled = enabled
@@ -151,9 +162,6 @@ internal class MainScreen(
                 setText(R.string.empty_secrets)
                 gravity = Gravity.CENTER
             }
-            setOnItemClickListener { _, _, position, _ ->
-                entries.getOrNull(position)?.let(actions.deleteEntry)
-            }
         }
         emptyView = entriesList.emptyView as TextView
         root.addView(
@@ -203,28 +211,220 @@ internal class MainScreen(
 
     private fun dimen(resId: Int) = activity.resources.getDimension(resId)
 
+    private fun openSwipeActions(row: SwipeRow) {
+        if (openRow !== row) {
+            openRow?.animateContentTo(0f)
+        }
+        openEntryId = row.entryId
+        openRow = row
+        row.animateContentTo(-row.actionsWidthPx.toFloat())
+    }
+
+    private fun closeSwipeActions(animated: Boolean = true) {
+        val row = openRow
+        openEntryId = null
+        openRow = null
+        if (animated) {
+            row?.animateContentTo(0f)
+        } else {
+            row?.setContentTranslation(0f)
+        }
+    }
+
     private inner class EntryAdapter : BaseAdapter() {
         override fun getCount() = entries.size
 
         override fun getItem(position: Int) = entries[position]
 
-        override fun getItemId(position: Int) = position.toLong()
+        override fun getItemId(position: Int) = getItem(position).id.hashCode().toLong()
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-            val view = (convertView as? TextView) ?: TextView(activity).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_PX, rowTextSizePx)
-                setPadding(
-                    rowPaddingHorizontalPx,
-                    rowPaddingVerticalPx,
-                    rowPaddingHorizontalPx,
-                    rowPaddingVerticalPx,
-                )
+            val row = (convertView?.tag as? SwipeRow) ?: SwipeRow()
+            row.bind(getItem(position))
+            return row.root
+        }
+    }
+
+    private inner class SwipeRow {
+        val actionsWidthPx = rowActionWidthPx * 2
+        var entryId: String? = null
+            private set
+
+        private var entry: TotpEntry? = null
+        private var downRawX = 0f
+        private var downRawY = 0f
+        private var downTranslation = 0f
+        private var dragging = false
+
+        private val content = TextView(activity).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, rowTextSizePx)
+            setBackgroundColor(ContextCompat.getColor(activity, R.color.app_surface))
+            setPadding(
+                rowPaddingHorizontalPx,
+                rowPaddingVerticalPx,
+                rowPaddingHorizontalPx,
+                rowPaddingVerticalPx,
+            )
+            setOnTouchListener(::onContentTouch)
+        }
+        private val actionContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(
+                actionButton(
+                    textResId = R.string.action_delete,
+                    backgroundColorResId = R.color.row_action_delete,
+                    textColorResId = android.R.color.white,
+                ) {
+                    val selected = entry ?: return@actionButton
+                    closeSwipeActions()
+                    actions.deleteEntry(selected)
+                },
+                LinearLayout.LayoutParams(rowActionWidthPx, ViewGroup.LayoutParams.MATCH_PARENT),
+            )
+            addView(
+                actionButton(
+                    textResId = R.string.action_edit,
+                    backgroundColorResId = R.color.row_action_edit,
+                    textColorResId = android.R.color.black,
+                ) {
+                    val selected = entry ?: return@actionButton
+                    closeSwipeActions()
+                    actions.editEntry(selected)
+                },
+                LinearLayout.LayoutParams(rowActionWidthPx, ViewGroup.LayoutParams.MATCH_PARENT),
+            )
+        }
+        val root = FrameLayout(activity).apply {
+            tag = this@SwipeRow
+            addView(
+                actionContainer,
+                FrameLayout.LayoutParams(actionsWidthPx, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                    gravity = Gravity.END
+                },
+            )
+            addView(
+                content,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+
+        fun bind(entry: TotpEntry) {
+            if (openRow === this && openEntryId != entry.id) {
+                openRow = null
             }
-            val entry = getItem(position)
+            this.entry = entry
+            entryId = entry.id
+            content.text = entryLine(entry)
+            content.contentDescription = entryLine(entry)
+            content.animate().cancel()
+            if (openEntryId == entry.id) {
+                openRow = this
+                setContentTranslation(-actionsWidthPx.toFloat())
+            } else {
+                setContentTranslation(0f)
+            }
+        }
+
+        fun animateContentTo(translation: Float) {
+            content.animate()
+                .translationX(translation)
+                .setDuration(SWIPE_ANIMATION_DURATION_MS)
+                .start()
+        }
+
+        fun setContentTranslation(translation: Float) {
+            content.animate().cancel()
+            content.translationX = translation
+        }
+
+        private fun onContentTouch(view: View, event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (openEntryId != null && openEntryId != entryId) {
+                        closeSwipeActions()
+                    }
+                    view.animate().cancel()
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    downTranslation = view.translationX
+                    dragging = false
+                    view.isPressed = true
+                    return true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = event.rawX - downRawX
+                    val deltaY = event.rawY - downRawY
+                    if (!dragging &&
+                        kotlin.math.abs(deltaX) > swipeTouchSlop &&
+                        kotlin.math.abs(deltaX) > kotlin.math.abs(deltaY)
+                    ) {
+                        dragging = true
+                        view.parent.requestDisallowInterceptTouchEvent(true)
+                    }
+                    if (dragging) {
+                        view.translationX = (downTranslation + deltaX)
+                            .coerceIn(-actionsWidthPx.toFloat(), 0f)
+                    }
+                    return true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    view.isPressed = false
+                    view.parent.requestDisallowInterceptTouchEvent(false)
+                    if (dragging) {
+                        if (view.translationX <= -actionsWidthPx / 2f) {
+                            openSwipeActions(this)
+                        } else {
+                            closeSwipeActions()
+                        }
+                    } else if (openEntryId == entryId) {
+                        closeSwipeActions()
+                    }
+                    dragging = false
+                    view.performClick()
+                    return true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    view.isPressed = false
+                    view.parent.requestDisallowInterceptTouchEvent(false)
+                    if (openEntryId == entryId) {
+                        animateContentTo(-actionsWidthPx.toFloat())
+                    } else {
+                        animateContentTo(0f)
+                    }
+                    dragging = false
+                    return true
+                }
+            }
+            return false
+        }
+
+        private fun actionButton(
+            textResId: Int,
+            @ColorRes backgroundColorResId: Int,
+            @ColorRes textColorResId: Int,
+            onClick: () -> Unit,
+        ) = Button(activity).apply {
+            setText(textResId)
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            setTextColor(ContextCompat.getColor(activity, textColorResId))
+            setBackgroundColor(ContextCompat.getColor(activity, backgroundColorResId))
+            setPadding(rowPaddingHorizontalPx / 2, 0, rowPaddingHorizontalPx / 2, 0)
+            setOnClickListener { onClick() }
+        }
+
+        private fun entryLine(entry: TotpEntry): String {
             val subtitle = listOf(entry.issuer, entry.accountName)
                 .filter { it.isNotBlank() }
                 .joinToString(" · ")
-            view.text = if (subtitle.isBlank()) {
+            return if (subtitle.isBlank()) {
                 activity.getString(R.string.entry_line_single, entry.displayName)
             } else {
                 activity.getString(
@@ -233,7 +433,10 @@ internal class MainScreen(
                     subtitle,
                 )
             }
-            return view
         }
+    }
+
+    private companion object {
+        const val SWIPE_ANIMATION_DURATION_MS = 160L
     }
 }

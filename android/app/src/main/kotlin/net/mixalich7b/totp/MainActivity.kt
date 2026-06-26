@@ -34,6 +34,7 @@ class MainActivity : Activity() {
                 synchronize = { syncController.onSyncPressed() },
                 clearWatch = { syncController.confirmClearWatch() },
                 deleteEntry = { entryEditorController.confirmDelete(it) },
+                editEntry = { entryEditorController.showEditDialog(it) },
             ),
         )
         setContentView(screen.contentView)

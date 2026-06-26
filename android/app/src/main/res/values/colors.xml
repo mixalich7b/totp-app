@@ -2,4 +2,6 @@
 <resources>
     <color name="app_surface">#FAFAFA</color>
     <color name="launcher_background">#DFF4B8</color>
+    <color name="row_action_delete">#C62828</color>
+    <color name="row_action_edit">#C8E6C9</color>
 </resources>

@@ -22,13 +22,15 @@ TOTP рассчитывается по RFC 4226/6238 из системного U
 
 - `MainActivity` связывает компоненты, выполняет initial load, управляет lifecycle
   и показывает явный reset flow при недоступном хранилище.
-- `MainScreen` строит platform UI, владеет `ListView` adapter и состоянием controls.
+- `MainScreen` строит platform UI, владеет `ListView` adapter, swipe-actions строк
+  и состоянием controls.
 - `EntryCollection` владеет расшифрованным списком для UI. Она предоставляет
   read-only view и зануляет secret при удалении, замене или очистке записи.
 - `LocalEntryStore` владеет repository и последовательным executor. Его
   типизированные операции доставляют результат на UI thread и отбрасывают его
   после `close()`, предварительно очищая расшифрованные snapshot.
-- `EntryEditorController` управляет диалогами ручного добавления и удаления.
+- `EntryEditorController` управляет диалогами ручного добавления, редактирования
+  и удаления.
 - `ImportController` управляет scanner, multi-batch collector, preview, политикой
   дубликатов и временем жизни pending import.
 - `SyncController` получает snapshot из `LocalEntryStore` и координирует UI с
@@ -43,9 +45,15 @@ TOTP рассчитывается по RFC 4226/6238 из системного U
 - `SyncProtocol` формирует канонический SHA-256 snapshot.
 
 Полная загрузка decrypted records выполняется при старте приложения и после
-явного reset локального storage. После успешных add, delete и import
+явного reset локального storage. После успешных add, edit, delete и import
 `EntryCollection` изменяется инкрементально, поэтому `ListView` не очищается на
 время повторного чтения БД. Persistence при этом завершается до изменения UI.
+
+Свайп строки списка влево открывает красное действие удаления и бледно-зелёное
+действие редактирования. Удаление использует общий диалог подтверждения.
+Редактирование позволяет изменить display name, issuer, account, алгоритм, число
+цифр и период. Secret в форму не передаётся и не редактируется; update сохраняет
+ID, createdAt, secret и позицию строки, увеличивая revision snapshot один раз.
 
 Google Code Scanner требует Google Play services и не требует `CAMERA` permission.
 Перед импортом показывается preview. Ошибка отдельной записи экспорта Google

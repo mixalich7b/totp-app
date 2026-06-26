@@ -71,6 +71,18 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
         )
     }
 
+    fun update(
+        entry: TotpEntry,
+        onSuccess: (Long) -> Unit,
+        onFailure: (Throwable) -> Unit,
+    ) {
+        execute(
+            operation = { repository.update(entry) },
+            onSuccess = onSuccess,
+            onFailure = onFailure,
+        )
+    }
+
     fun delete(
         id: String,
         onSuccess: (Long) -> Unit,
