@@ -1,8 +1,11 @@
 package net.mixalich7b.totp
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -43,17 +46,29 @@ internal class MainScreen(
     private val buttonGapPx = dimenPx(R.dimen.totp_button_gap)
     private val bottomPaddingPx = dimenPx(R.dimen.totp_screen_bottom_padding)
     private val rowTextSizePx = dimen(R.dimen.totp_row_text_size)
+    private val rowSubtitleTextSizePx = dimen(R.dimen.totp_row_subtitle_text_size)
+    private val rowCodeTextSizePx = dimen(R.dimen.totp_row_code_text_size)
     private val rowPaddingHorizontalPx = dimenPx(R.dimen.totp_row_padding_horizontal)
     private val rowPaddingVerticalPx = dimenPx(R.dimen.totp_row_padding_vertical)
+    private val rowNameCodeGapPx = dimenPx(R.dimen.totp_row_name_code_gap)
     private val rowMinHeightPx = dimenPx(R.dimen.totp_row_min_height)
+    private val rowTimerHeightPx = dimenPx(R.dimen.totp_row_timer_height)
     private val rowActionWidthPx = dimenPx(R.dimen.totp_row_action_width)
     private val rowActionIconSizePx = dimenPx(R.dimen.totp_row_action_icon_size)
     private val rowActionIconStrokePx = dimenPx(R.dimen.totp_row_action_icon_stroke)
     private val swipeTouchSlop = ViewConfiguration.get(activity).scaledTouchSlop
 
     private val adapter = EntryAdapter()
+    private val codeTicker = object : Runnable {
+        override fun run() {
+            if (!codeTickerRunning) return
+            updateVisibleCodes()
+            scheduleNextCodeTick()
+        }
+    }
     private var openEntryId: String? = null
     private var openRow: SwipeRow? = null
+    private var codeTickerRunning = false
     private lateinit var statusView: TextView
     private lateinit var emptyView: TextView
     private lateinit var syncButton: Button
@@ -90,6 +105,9 @@ internal class MainScreen(
     fun refreshEntries() {
         closeSwipeActions(animated = false)
         adapter.notifyDataSetChanged()
+        if (::entriesList.isInitialized) {
+            entriesList.post { updateVisibleCodes() }
+        }
     }
 
     fun setMutationControlsEnabled(enabled: Boolean) {
@@ -111,6 +129,15 @@ internal class MainScreen(
             setBackgroundColor(ContextCompat.getColor(activity, R.color.app_surface))
             setPadding(edgePaddingPx, edgePaddingPx, edgePaddingPx, bottomPaddingPx)
         }
+        root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) {
+                startCodeTicker()
+            }
+
+            override fun onViewDetachedFromWindow(view: View) {
+                stopCodeTicker()
+            }
+        })
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(
@@ -220,6 +247,52 @@ internal class MainScreen(
 
     private fun dimen(resId: Int) = activity.resources.getDimension(resId)
 
+    private fun startCodeTicker() {
+        if (codeTickerRunning) return
+        codeTickerRunning = true
+        updateVisibleCodes()
+        scheduleNextCodeTick()
+    }
+
+    private fun stopCodeTicker() {
+        codeTickerRunning = false
+        if (::entriesList.isInitialized) {
+            entriesList.removeCallbacks(codeTicker)
+        }
+    }
+
+    private fun scheduleNextCodeTick() {
+        if (!codeTickerRunning || !::entriesList.isInitialized) return
+        entriesList.removeCallbacks(codeTicker)
+        val now = System.currentTimeMillis()
+        val delayMs = (TICKER_INTERVAL_MS - (now % TICKER_INTERVAL_MS))
+            .coerceIn(1L, TICKER_INTERVAL_MS)
+        entriesList.postDelayed(codeTicker, delayMs)
+    }
+
+    private fun updateVisibleCodes(nowMillis: Long = System.currentTimeMillis()) {
+        if (!::entriesList.isInitialized) return
+        for (index in 0 until entriesList.childCount) {
+            (entriesList.getChildAt(index).tag as? SwipeRow)?.updateTotp(nowMillis)
+        }
+    }
+
+    private fun copyCurrentTotp(entry: TotpEntry) {
+        val code = Totp.generate(entry)
+        val clipboard = ContextCompat.getSystemService(activity, ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(
+            ClipData.newPlainText(
+                activity.getString(R.string.totp_code_clip_label),
+                code,
+            ),
+        )
+        android.widget.Toast.makeText(
+            activity,
+            R.string.totp_code_copied,
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+
     private fun openSwipeActions(row: SwipeRow) {
         if (openRow !== row) {
             openRow?.animateContentTo(0f)
@@ -265,18 +338,90 @@ internal class MainScreen(
         private var downTranslation = 0f
         private var dragging = false
 
-        private val content = TextView(activity).apply {
+        private val titleView = TextView(activity).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_PX, rowTextSizePx)
+            setTextColor(ContextCompat.getColor(activity, android.R.color.black))
+        }
+        private val subtitleView = TextView(activity).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, rowSubtitleTextSizePx)
+            setTextColor(ContextCompat.getColor(activity, R.color.row_subtitle_text))
+        }
+        private val codeView = TextView(activity).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, rowCodeTextSizePx)
+            setTextColor(ContextCompat.getColor(activity, android.R.color.black))
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            includeFontPadding = false
+            letterSpacing = TOTP_CODE_LETTER_SPACING
+        }
+        private val progressLine = View(activity).apply {
+            pivotX = 0f
+            setBackgroundColor(ContextCompat.getColor(activity, R.color.row_timer_progress))
+        }
+        private val content = FrameLayout(activity).apply {
             setBackgroundColor(ContextCompat.getColor(activity, R.color.app_surface))
             minimumHeight = rowMinHeightPx
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(
-                rowPaddingHorizontalPx,
-                rowPaddingVerticalPx,
-                rowPaddingHorizontalPx,
-                rowPaddingVerticalPx,
+            addView(
+                LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(
+                        rowPaddingHorizontalPx,
+                        rowPaddingVerticalPx,
+                        rowPaddingHorizontalPx,
+                        rowPaddingVerticalPx + rowTimerHeightPx,
+                    )
+                    addView(
+                        titleView,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ),
+                    )
+                    addView(
+                        subtitleView,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ),
+                    )
+                    addView(
+                        codeView,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ).apply {
+                            topMargin = rowNameCodeGapPx
+                        },
+                    )
+                },
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                },
+            )
+            addView(
+                FrameLayout(activity).apply {
+                    addView(
+                        progressLine,
+                        FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                },
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    rowTimerHeightPx,
+                ).apply {
+                    gravity = Gravity.BOTTOM
+                },
             )
             setOnTouchListener(::onContentTouch)
+            setOnClickListener {
+                val currentEntry = entry ?: return@setOnClickListener
+                copyCurrentTotp(currentEntry)
+            }
         }
         private val actionContainer = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -332,7 +477,11 @@ internal class MainScreen(
             }
             this.entry = entry
             entryId = entry.id
-            content.text = entryLine(entry)
+            titleView.text = entry.displayName
+            val subtitle = entrySubtitle(entry)
+            subtitleView.text = subtitle
+            subtitleView.visibility = if (subtitle.isBlank()) View.GONE else View.VISIBLE
+            updateTotp()
             content.contentDescription = entryLine(entry)
             content.animate().cancel()
             if (openEntryId == entry.id) {
@@ -341,6 +490,26 @@ internal class MainScreen(
             } else {
                 setContentTranslation(0f)
             }
+        }
+
+        fun updateTotp(nowMillis: Long = System.currentTimeMillis()) {
+            val currentEntry = entry ?: return
+            val nowSeconds = nowMillis / 1000L
+            codeView.text = Totp.generate(currentEntry, nowSeconds)
+            val periodSeconds = currentEntry.periodSeconds
+            val remainingSeconds = periodSeconds - (nowSeconds % periodSeconds).toInt()
+            val progress = remainingSeconds.toFloat() / periodSeconds.toFloat()
+            progressLine.scaleX = progress.coerceIn(0f, 1f)
+            progressLine.setBackgroundColor(
+                ContextCompat.getColor(
+                    activity,
+                    if (remainingSeconds <= TOTP_WARNING_SECONDS) {
+                        R.color.row_timer_warning
+                    } else {
+                        R.color.row_timer_progress
+                    },
+                ),
+            )
         }
 
         fun animateContentTo(translation: Float) {
@@ -398,9 +567,10 @@ internal class MainScreen(
                         }
                     } else if (openEntryId == entryId) {
                         closeSwipeActions()
+                    } else {
+                        view.performClick()
                     }
                     dragging = false
-                    view.performClick()
                     return true
                 }
 
@@ -451,10 +621,13 @@ internal class MainScreen(
             setStroke(rowActionIconStrokePx, color)
         }
 
-        private fun entryLine(entry: TotpEntry): String {
-            val subtitle = listOf(entry.issuer, entry.accountName)
+        private fun entrySubtitle(entry: TotpEntry): String =
+            listOf(entry.issuer, entry.accountName)
                 .filter { it.isNotBlank() }
                 .joinToString(" · ")
+
+        private fun entryLine(entry: TotpEntry): String {
+            val subtitle = entrySubtitle(entry)
             return if (subtitle.isBlank()) {
                 activity.getString(R.string.entry_line_single, entry.displayName)
             } else {
@@ -469,5 +642,8 @@ internal class MainScreen(
 
     private companion object {
         const val SWIPE_ANIMATION_DURATION_MS = 160L
+        const val TICKER_INTERVAL_MS = 1_000L
+        const val TOTP_WARNING_SECONDS = 5
+        const val TOTP_CODE_LETTER_SPACING = 0.08f
     }
 }

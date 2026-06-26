@@ -10,9 +10,13 @@
     <dimen name="totp_title_text_size">20sp</dimen>
     <dimen name="totp_status_text_size">14sp</dimen>
     <dimen name="totp_row_text_size">16sp</dimen>
+    <dimen name="totp_row_subtitle_text_size">13sp</dimen>
+    <dimen name="totp_row_code_text_size">24sp</dimen>
     <dimen name="totp_row_padding_horizontal">12dp</dimen>
     <dimen name="totp_row_padding_vertical">14dp</dimen>
-    <dimen name="totp_row_min_height">56dp</dimen>
+    <dimen name="totp_row_name_code_gap">4dp</dimen>
+    <dimen name="totp_row_min_height">88dp</dimen>
+    <dimen name="totp_row_timer_height">4dp</dimen>
     <dimen name="totp_row_action_width">88dp</dimen>
     <dimen name="totp_row_action_icon_size">48dp</dimen>
     <dimen name="totp_row_action_icon_stroke">2dp</dimen>

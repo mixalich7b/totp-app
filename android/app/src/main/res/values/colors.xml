@@ -4,4 +4,7 @@
     <color name="launcher_background">#DFF4B8</color>
     <color name="row_action_delete">#C62828</color>
     <color name="row_action_edit">#C8E6C9</color>
+    <color name="row_subtitle_text">#5F6368</color>
+    <color name="row_timer_progress">#2E7D32</color>
+    <color name="row_timer_warning">#C62828</color>
 </resources>

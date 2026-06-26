@@ -17,6 +17,8 @@
     <string name="action_continue">Продолжить</string>
     <string name="action_delete">Удалить</string>
     <string name="action_edit">Изменить</string>
+    <string name="totp_code_clip_label">TOTP code</string>
+    <string name="totp_code_copied">Код скопирован</string>
     <string name="action_reset_storage">Сбросить данные</string>
     <string name="local_status">Локальная revision %1$d; записей: %2$d</string>
     <string name="batch_status">Считано %1$d из %2$d QR; сканируйте следующий</string>
