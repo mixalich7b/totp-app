@@ -1,6 +1,9 @@
 package net.mixalich7b.totp
 
 import android.app.Activity
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -10,10 +13,13 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import androidx.annotation.ColorRes
+import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -39,7 +45,10 @@ internal class MainScreen(
     private val rowTextSizePx = dimen(R.dimen.totp_row_text_size)
     private val rowPaddingHorizontalPx = dimenPx(R.dimen.totp_row_padding_horizontal)
     private val rowPaddingVerticalPx = dimenPx(R.dimen.totp_row_padding_vertical)
+    private val rowMinHeightPx = dimenPx(R.dimen.totp_row_min_height)
     private val rowActionWidthPx = dimenPx(R.dimen.totp_row_action_width)
+    private val rowActionIconSizePx = dimenPx(R.dimen.totp_row_action_icon_size)
+    private val rowActionIconStrokePx = dimenPx(R.dimen.totp_row_action_icon_stroke)
     private val swipeTouchSlop = ViewConfiguration.get(activity).scaledTouchSlop
 
     private val adapter = EntryAdapter()
@@ -259,6 +268,8 @@ internal class MainScreen(
         private val content = TextView(activity).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_PX, rowTextSizePx)
             setBackgroundColor(ContextCompat.getColor(activity, R.color.app_surface))
+            minimumHeight = rowMinHeightPx
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(
                 rowPaddingHorizontalPx,
                 rowPaddingVerticalPx,
@@ -269,25 +280,28 @@ internal class MainScreen(
         }
         private val actionContainer = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = rowMinHeightPx
+            setBackgroundColor(ContextCompat.getColor(activity, R.color.app_surface))
             addView(
-                actionButton(
-                    textResId = R.string.action_delete,
-                    backgroundColorResId = R.color.row_action_delete,
-                    textColorResId = android.R.color.white,
+                actionButtonSlot(
+                    iconResId = R.drawable.ic_action_delete_24,
+                    contentDescriptionResId = R.string.action_delete,
+                    colorResId = R.color.row_action_delete,
                 ) {
-                    val selected = entry ?: return@actionButton
+                    val selected = entry ?: return@actionButtonSlot
                     closeSwipeActions()
                     actions.deleteEntry(selected)
                 },
                 LinearLayout.LayoutParams(rowActionWidthPx, ViewGroup.LayoutParams.MATCH_PARENT),
             )
             addView(
-                actionButton(
-                    textResId = R.string.action_edit,
-                    backgroundColorResId = R.color.row_action_edit,
-                    textColorResId = android.R.color.black,
+                actionButtonSlot(
+                    iconResId = R.drawable.ic_action_edit_24,
+                    contentDescriptionResId = R.string.action_edit,
+                    colorResId = R.color.row_action_edit,
                 ) {
-                    val selected = entry ?: return@actionButton
+                    val selected = entry ?: return@actionButtonSlot
                     closeSwipeActions()
                     actions.editEntry(selected)
                 },
@@ -296,6 +310,7 @@ internal class MainScreen(
         }
         val root = FrameLayout(activity).apply {
             tag = this@SwipeRow
+            minimumHeight = rowMinHeightPx
             addView(
                 actionContainer,
                 FrameLayout.LayoutParams(actionsWidthPx, ViewGroup.LayoutParams.MATCH_PARENT).apply {
@@ -404,20 +419,36 @@ internal class MainScreen(
             return false
         }
 
-        private fun actionButton(
-            textResId: Int,
-            @ColorRes backgroundColorResId: Int,
-            @ColorRes textColorResId: Int,
+        private fun actionButtonSlot(
+            @DrawableRes iconResId: Int,
+            contentDescriptionResId: Int,
+            @ColorRes colorResId: Int,
             onClick: () -> Unit,
-        ) = Button(activity).apply {
-            setText(textResId)
-            isAllCaps = false
-            minWidth = 0
-            minimumWidth = 0
-            setTextColor(ContextCompat.getColor(activity, textColorResId))
-            setBackgroundColor(ContextCompat.getColor(activity, backgroundColorResId))
-            setPadding(rowPaddingHorizontalPx / 2, 0, rowPaddingHorizontalPx / 2, 0)
-            setOnClickListener { onClick() }
+        ) = FrameLayout(activity).apply {
+            minimumHeight = rowMinHeightPx
+            addView(
+                ImageButton(activity).apply {
+                    val actionColor = ContextCompat.getColor(activity, colorResId)
+                    background = circularActionFrame(actionColor)
+                    imageTintList = ColorStateList.valueOf(actionColor)
+                    setImageResource(iconResId)
+                    scaleType = ImageView.ScaleType.CENTER
+                    contentDescription = activity.getString(contentDescriptionResId)
+                    minimumWidth = 0
+                    minimumHeight = 0
+                    setPadding(0, 0, 0, 0)
+                    setOnClickListener { onClick() }
+                },
+                FrameLayout.LayoutParams(rowActionIconSizePx, rowActionIconSizePx).apply {
+                    gravity = Gravity.CENTER
+                },
+            )
+        }
+
+        private fun circularActionFrame(color: Int) = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.TRANSPARENT)
+            setStroke(rowActionIconStrokePx, color)
         }
 
         private fun entryLine(entry: TotpEntry): String {

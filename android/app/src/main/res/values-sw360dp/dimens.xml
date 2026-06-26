@@ -12,5 +12,8 @@
     <dimen name="totp_row_text_size">16sp</dimen>
     <dimen name="totp_row_padding_horizontal">10dp</dimen>
     <dimen name="totp_row_padding_vertical">10dp</dimen>
+    <dimen name="totp_row_min_height">56dp</dimen>
     <dimen name="totp_row_action_width">80dp</dimen>
+    <dimen name="totp_row_action_icon_size">48dp</dimen>
+    <dimen name="totp_row_action_icon_stroke">2dp</dimen>
 </resources>
