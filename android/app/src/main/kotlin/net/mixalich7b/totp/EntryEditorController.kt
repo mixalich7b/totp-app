@@ -23,7 +23,7 @@ internal class EntryEditorController(
     private val entryStore: LocalEntryStore,
     private val entryCollection: EntryCollection,
     private val screen: MainScreen,
-    private val onError: (Throwable) -> Unit,
+    private val onError: ErrorHandler,
 ) {
     private val dialogHorizontalPaddingPx =
         dimenPx(R.dimen.totp_dialog_horizontal_padding)
@@ -106,8 +106,9 @@ internal class EntryEditorController(
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_save, null)
             .create()
+        var submit: (() -> Unit)? = null
         dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            submit = {
                 try {
                     val displayName = name.text.toString().trim()
                     val issuerValue = issuer.text.toString().trim()
@@ -151,8 +152,11 @@ internal class EntryEditorController(
                             onFailure = { error ->
                                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                                 screen.setMutationControlsEnabled(true)
-                                onError(error)
+                                onError(error) {
+                                    submit?.invoke()
+                                }
                             },
+                            onRetry = ::showErrorStatus,
                             onFinished = { entry.secret.fill(0) },
                         )
                     } else {
@@ -168,14 +172,20 @@ internal class EntryEditorController(
                             onFailure = { error ->
                                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                                 screen.setMutationControlsEnabled(true)
-                                onError(error)
+                                onError(error) {
+                                    submit?.invoke()
+                                }
                             },
+                            onRetry = ::showErrorStatus,
                         )
                     }
                 } catch (error: Exception) {
                     screen.setMutationControlsEnabled(true)
-                    onError(error)
+                    onError(error, null)
                 }
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                submit?.invoke()
             }
         }
         dialog.setOnDismissListener {
@@ -190,23 +200,36 @@ internal class EntryEditorController(
             .setMessage(entry.displayName)
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_delete) { _, _ ->
-                screen.setMutationControlsEnabled(false)
-                entryStore.delete(
-                    id = entry.id,
-                    onSuccess = { revision ->
-                        entryCollection.remove(entry.id)
-                        screen.refreshEntries()
-                        screen.showLocalStatus(revision, entryCollection.size)
-                        screen.setMutationControlsEnabled(true)
-                    },
-                    onFailure = { error ->
-                        screen.setMutationControlsEnabled(true)
-                        onError(error)
-                    },
-                )
+                deleteEntry(entry)
             }
             .show()
     }
+
+    private fun deleteEntry(entry: TotpEntry) {
+        screen.setMutationControlsEnabled(false)
+        entryStore.delete(
+            id = entry.id,
+            onSuccess = { revision ->
+                entryCollection.remove(entry.id)
+                screen.refreshEntries()
+                screen.showLocalStatus(revision, entryCollection.size)
+                screen.setMutationControlsEnabled(true)
+            },
+            onFailure = { error ->
+                screen.setMutationControlsEnabled(true)
+                onError(error) {
+                    deleteEntry(entry)
+                }
+            },
+            onRetry = ::showErrorStatus,
+        )
+    }
+
+    private fun showErrorStatus(error: Throwable) {
+        screen.showStatus(R.string.error_status, error.userMessage())
+    }
+
+    private fun Throwable.userMessage() = message ?: javaClass.simpleName
 
     private fun field(hintResId: Int) = EditText(activity).apply {
         hint = activity.getString(hintResId)

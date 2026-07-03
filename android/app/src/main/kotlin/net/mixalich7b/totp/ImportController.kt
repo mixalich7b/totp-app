@@ -12,7 +12,7 @@ internal class ImportController(
     private val entryStore: LocalEntryStore,
     private val entryCollection: EntryCollection,
     private val screen: MainScreen,
-    private val onError: (Throwable) -> Unit,
+    private val onError: ErrorHandler,
 ) : AutoCloseable {
     private var pendingImportEntries: List<TotpEntry>? = null
     private val migrationCollector = MigrationBatchCollector()
@@ -35,7 +35,11 @@ internal class ImportController(
                 if (!closed) screen.showStatus(R.string.status_scan_canceled)
             }
             .addOnFailureListener { error ->
-                if (!closed) onError(error)
+                if (!closed) {
+                    onError(error) {
+                        if (!closed) scanQr()
+                    }
+                }
             }
     }
 
@@ -62,7 +66,7 @@ internal class ImportController(
                 error(activity.getString(R.string.error_not_totp_qr))
             }
         } catch (error: Exception) {
-            onError(error)
+            onError(error, null)
         }
     }
 
@@ -217,16 +221,25 @@ internal class ImportController(
                     )
                     screen.showDefaultEmptyText()
                     screen.setMutationControlsEnabled(true)
+                    clearPendingImport()
                 },
                 onFailure = { error ->
                     screen.setMutationControlsEnabled(true)
-                    onError(error)
+                    if (error is StorageUnavailableException && error.canRecoverWithLocalReset) {
+                        onError(error, null)
+                        clearPendingImport()
+                    } else {
+                        onError(error) {
+                            if (!closed) importSelected(selected, policy)
+                        }
+                    }
                 },
-                onFinished = ::clearPendingImport,
+                onRetry = ::showErrorStatus,
+                onFinished = {},
             )
         } catch (error: Exception) {
             screen.setMutationControlsEnabled(true)
-            onError(error)
+            onError(error, null)
             clearPendingImport()
         }
     }
@@ -239,6 +252,12 @@ internal class ImportController(
     private fun toast(text: String) {
         Toast.makeText(activity, text, Toast.LENGTH_LONG).show()
     }
+
+    private fun showErrorStatus(error: Throwable) {
+        screen.showStatus(R.string.error_status, error.userMessage())
+    }
+
+    private fun Throwable.userMessage() = message ?: javaClass.simpleName
 
     override fun close() {
         closed = true

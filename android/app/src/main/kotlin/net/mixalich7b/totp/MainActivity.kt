@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 
+internal typealias ErrorHandler = (Throwable, (() -> Unit)?) -> Unit
+
 class MainActivity : Activity() {
     private lateinit var entryStore: LocalEntryStore
     private lateinit var entryEditorController: EntryEditorController
@@ -84,13 +86,14 @@ class MainActivity : Activity() {
             },
             onFailure = { error ->
                 screen.showDefaultEmptyText()
-                handleError(error)
+                handleError(error, ::loadEntries)
             },
+            onRetry = ::showErrorStatus,
         )
     }
 
     private fun showStorageResetDialog(error: StorageUnavailableException) {
-        screen.showStatus(R.string.error_status, error.userMessage())
+        showErrorStatus(error)
         if (storageResetDialogVisible || isFinishing || isDestroyed) return
         storageResetDialogVisible = true
         AlertDialog.Builder(this)
@@ -117,25 +120,40 @@ class MainActivity : Activity() {
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
-    private fun handleError(error: Throwable) {
+    private fun handleError(error: Throwable, retryAction: (() -> Unit)? = null) {
         if (error is StorageUnavailableException && error.canRecoverWithLocalReset) {
             showStorageResetDialog(error)
         } else {
-            showError(error)
+            showError(error, retryAction)
         }
     }
 
-    private fun showError(error: Throwable) {
+    private fun showError(error: Throwable, retryAction: (() -> Unit)? = null) {
         val message = error.userMessage()
-        screen.showStatus(R.string.error_status, message)
+        showErrorStatus(message)
         if (errorDialogVisible || storageResetDialogVisible || isFinishing || isDestroyed) return
         errorDialogVisible = true
+        val messageRes = when {
+            error is StorageUnavailableException && error.kind == StorageFailureKind.DEVICE_LOCKED && retryAction != null ->
+                R.string.message_device_locked_error
+            retryAction != null -> R.string.message_retryable_error
+            else -> R.string.message_error
+        }
         AlertDialog.Builder(this)
             .setTitle(R.string.dialog_error)
-            .setMessage(getString(R.string.message_retryable_error, message))
+            .setMessage(getString(messageRes, message))
             .setPositiveButton(android.R.string.ok, null)
-            .setOnDismissListener { errorDialogVisible = false }
+            .setOnDismissListener {
+                errorDialogVisible = false
+                if (retryAction != null && !isFinishing && !isDestroyed) retryAction()
+            }
             .show()
+    }
+
+    private fun showErrorStatus(error: Throwable) = showErrorStatus(error.userMessage())
+
+    private fun showErrorStatus(message: String) {
+        screen.showStatus(R.string.error_status, message)
     }
 
     private fun Throwable.userMessage() = message ?: javaClass.simpleName

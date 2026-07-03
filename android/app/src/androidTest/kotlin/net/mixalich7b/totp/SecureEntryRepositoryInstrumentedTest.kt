@@ -21,6 +21,7 @@ class SecureEntryRepositoryInstrumentedTest {
 
     @Before
     fun setUp() {
+        ensureDeviceUnlocked()
         clearStorage()
     }
 
@@ -90,7 +91,8 @@ class SecureEntryRepositoryInstrumentedTest {
             SecureEntryRepository(context).use(SecureEntryRepository::list)
             fail("StorageUnavailableException expected")
         } catch (error: StorageUnavailableException) {
-            assertTrue(error.canRecoverWithLocalReset)
+            assertTrue(error.diagnostic(), error.canRecoverWithLocalReset)
+            assertEquals(StorageFailureKind.KEY_MISSING, error.kind)
             // Expected: encrypted rows must not cause silent key regeneration.
         }
     }
@@ -106,7 +108,8 @@ class SecureEntryRepositoryInstrumentedTest {
             SecureEntryRepository(context).use(SecureEntryRepository::list)
             fail("StorageUnavailableException expected")
         } catch (error: StorageUnavailableException) {
-            assertTrue(error.canRecoverWithLocalReset)
+            assertTrue(error.diagnostic(), error.canRecoverWithLocalReset)
+            assertEquals(StorageFailureKind.KEY_MISSING, error.kind)
             // The reset must remain explicit after the repository reports the lost key.
         }
 
@@ -206,7 +209,8 @@ class SecureEntryRepositoryInstrumentedTest {
             SecureEntryRepository(context).use(SecureEntryRepository::list)
             fail("StorageUnavailableException expected")
         } catch (error: StorageUnavailableException) {
-            assertTrue(error.canRecoverWithLocalReset)
+            assertTrue(error.diagnostic(), error.canRecoverWithLocalReset)
+            assertEquals(StorageFailureKind.KEY_MISMATCH_OR_CORRUPT, error.kind)
             // Expected: authentication failure is reported as unavailable storage.
         }
     }
@@ -248,6 +252,22 @@ class SecureEntryRepositoryInstrumentedTest {
         context.deleteDatabase(DATABASE_NAME)
         deleteKey()
     }
+
+    private fun ensureDeviceUnlocked() {
+        runShellCommand("input keyevent KEYCODE_WAKEUP")
+        runShellCommand("wm dismiss-keyguard")
+        runShellCommand("input keyevent KEYCODE_MENU")
+        Thread.sleep(500)
+    }
+
+    private fun runShellCommand(command: String) {
+        InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand(command)
+            .close()
+    }
+
+    private fun StorageUnavailableException.diagnostic(): String =
+        "kind=$kind message=$message cause=${cause?.javaClass?.name}:${cause?.message}"
 
     private fun replaceEncryptedPayload(id: String, plaintext: ByteArray) {
         val key = KeyStore.getInstance("AndroidKeyStore")

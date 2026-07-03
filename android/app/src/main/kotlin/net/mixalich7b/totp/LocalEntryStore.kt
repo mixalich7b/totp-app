@@ -22,13 +22,15 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
     fun load(
         onSuccess: (LocalSnapshot) -> Unit,
         onFailure: (Throwable) -> Unit,
+        onRetry: (Throwable) -> Unit = {},
     ) {
-        snapshot(onSuccess, onFailure)
+        snapshot(onSuccess, onFailure, onRetry)
     }
 
     fun snapshot(
         onSuccess: (LocalSnapshot) -> Unit,
         onFailure: (Throwable) -> Unit,
+        onRetry: (Throwable) -> Unit = {},
     ) {
         execute(
             operation = {
@@ -39,6 +41,7 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
             },
             onSuccess = onSuccess,
             onFailure = onFailure,
+            onRetry = onRetry,
             onDiscard = ::clearSnapshot,
         )
     }
@@ -47,12 +50,14 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
         entry: TotpEntry,
         onSuccess: (Long) -> Unit,
         onFailure: (Throwable) -> Unit,
+        onRetry: (Throwable) -> Unit = {},
         onFinished: () -> Unit,
     ) {
         execute(
             operation = { repository.add(listOf(entry)) },
             onSuccess = onSuccess,
             onFailure = onFailure,
+            onRetry = onRetry,
             onFinished = onFinished,
         )
     }
@@ -61,12 +66,14 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
         entries: List<TotpEntry>,
         onSuccess: (Long) -> Unit,
         onFailure: (Throwable) -> Unit,
+        onRetry: (Throwable) -> Unit = {},
         onFinished: () -> Unit,
     ) {
         execute(
             operation = { repository.importEntries(entries) },
             onSuccess = onSuccess,
             onFailure = onFailure,
+            onRetry = onRetry,
             onFinished = onFinished,
         )
     }
@@ -75,11 +82,13 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
         entry: TotpEntry,
         onSuccess: (Long) -> Unit,
         onFailure: (Throwable) -> Unit,
+        onRetry: (Throwable) -> Unit = {},
     ) {
         execute(
             operation = { repository.update(entry) },
             onSuccess = onSuccess,
             onFailure = onFailure,
+            onRetry = onRetry,
         )
     }
 
@@ -87,11 +96,13 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
         id: String,
         onSuccess: (Long) -> Unit,
         onFailure: (Throwable) -> Unit,
+        onRetry: (Throwable) -> Unit = {},
     ) {
         execute(
             operation = { repository.delete(id) },
             onSuccess = onSuccess,
             onFailure = onFailure,
+            onRetry = onRetry,
         )
     }
 
@@ -124,6 +135,7 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
         operation: () -> T,
         onSuccess: (T) -> Unit,
         onFailure: (Throwable) -> Unit,
+        onRetry: (Throwable) -> Unit = {},
         onFinished: () -> Unit = {},
         onDiscard: (T) -> Unit = {},
     ) {
@@ -132,7 +144,7 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
             return
         }
         executor.execute {
-            val result = runCatching(operation)
+            val result = runWithStorageResetRetries(operation, onRetry)
             if (closed) {
                 result.getOrNull()?.let(onDiscard)
                 onFinished()
@@ -153,11 +165,46 @@ internal class LocalEntryStore(context: Context) : AutoCloseable {
         }
     }
 
+    private fun <T> runWithStorageResetRetries(
+        operation: () -> T,
+        onRetry: (Throwable) -> Unit,
+    ): Result<T> {
+        STORAGE_RESET_RETRY_DELAYS_MS.forEach { delayMs ->
+            val result = runCatching(operation)
+            val error = result.exceptionOrNull()
+            if (error == null || !error.shouldRetryBeforeLocalReset() || closed) return result
+            postRetry(error, onRetry)
+            if (!sleepBeforeRetry(delayMs)) return result
+        }
+        return runCatching(operation)
+    }
+
+    private fun Throwable.shouldRetryBeforeLocalReset(): Boolean =
+        this is StorageUnavailableException && canRecoverWithLocalReset
+
+    private fun postRetry(error: Throwable, onRetry: (Throwable) -> Unit) {
+        mainHandler.post {
+            if (!closed) onRetry(error)
+        }
+    }
+
+    private fun sleepBeforeRetry(delayMs: Long): Boolean = try {
+        Thread.sleep(delayMs)
+        true
+    } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
+
     @Synchronized
     override fun close() {
         if (closed) return
         closed = true
         executor.execute { repository.close() }
         executor.shutdown()
+    }
+
+    companion object {
+        private val STORAGE_RESET_RETRY_DELAYS_MS = longArrayOf(1_000L, 2_000L)
     }
 }

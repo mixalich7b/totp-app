@@ -7,8 +7,8 @@ internal class SyncController(
     private val activity: Activity,
     private val entryStore: LocalEntryStore,
     private val screen: MainScreen,
-    private val onStorageError: (Throwable) -> Unit,
-    private val onSyncError: (Throwable) -> Unit,
+    private val onStorageError: ErrorHandler,
+    private val onSyncError: ErrorHandler,
 ) : AutoCloseable {
     private lateinit var syncManager: GarminSyncManager
 
@@ -54,22 +54,30 @@ internal class SyncController(
             .setMessage(R.string.message_clear_watch)
             .setNegativeButton(R.string.action_cancel, null)
             .setPositiveButton(R.string.action_clear_watch) { _, _ ->
-                screen.setMutationControlsEnabled(false)
-                screen.setSyncButton(
-                    R.string.action_finishing_sync,
-                    enabled = false,
-                )
-                syncManager.clearWatch { result ->
-                    activity.runOnUiThread {
-                        if (closed) return@runOnUiThread
-                        screen.setMutationControlsEnabled(true)
-                        screen.setSyncButton(R.string.action_sync, enabled = true)
-                        result.onSuccess(screen::showStatus)
-                            .onFailure(onSyncError)
-                    }
-                }
+                clearWatch()
             }
             .show()
+    }
+
+    private fun clearWatch() {
+        screen.setMutationControlsEnabled(false)
+        screen.setSyncButton(
+            R.string.action_finishing_sync,
+            enabled = false,
+        )
+        syncManager.clearWatch { result ->
+            activity.runOnUiThread {
+                if (closed) return@runOnUiThread
+                screen.setMutationControlsEnabled(true)
+                screen.setSyncButton(R.string.action_sync, enabled = true)
+                result.onSuccess(screen::showStatus)
+                    .onFailure { error ->
+                        onSyncError(error) {
+                            clearWatch()
+                        }
+                    }
+            }
+        }
     }
 
     private fun synchronize() {
@@ -83,8 +91,11 @@ internal class SyncController(
             onFailure = { error ->
                 screen.setMutationControlsEnabled(true)
                 screen.setSyncButton(R.string.action_retry_sync, enabled = true)
-                onStorageError(error)
+                onStorageError(error) {
+                    synchronize()
+                }
             },
+            onRetry = ::showErrorStatus,
         )
     }
 
@@ -104,7 +115,9 @@ internal class SyncController(
                             screen.showStatus(error.userMessage())
                         } else {
                             screen.setSyncButton(R.string.action_retry_sync, enabled = true)
-                            onSyncError(error)
+                            onSyncError(error) {
+                                synchronize()
+                            }
                         }
                     }
                 }
@@ -115,6 +128,10 @@ internal class SyncController(
     }
 
     private fun Throwable.userMessage() = message ?: javaClass.simpleName
+
+    private fun showErrorStatus(error: Throwable) {
+        screen.showStatus(R.string.error_status, error.userMessage())
+    }
 
     override fun close() {
         closed = true

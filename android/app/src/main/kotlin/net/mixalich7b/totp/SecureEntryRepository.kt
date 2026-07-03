@@ -1,14 +1,17 @@
 package net.mixalich7b.totp
 
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
+import android.security.keystore.UserNotAuthenticatedException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -25,13 +28,28 @@ import javax.crypto.spec.GCMParameterSpec
 class StorageUnavailableException(
     message: String,
     cause: Throwable? = null,
-    val canRecoverWithLocalReset: Boolean = false,
-) : Exception(message, cause)
+    val kind: StorageFailureKind = StorageFailureKind.IO_OR_RUNTIME,
+) : Exception(message, cause) {
+    val canRecoverWithLocalReset: Boolean
+        get() = kind.canRecoverWithLocalReset
+}
+
+enum class StorageFailureKind(
+    val canRecoverWithLocalReset: Boolean,
+) {
+    DEVICE_LOCKED(false),
+    KEY_MISSING(true),
+    KEY_UNRECOVERABLE(true),
+    KEY_MISMATCH_OR_CORRUPT(true),
+    DATA_MALFORMED(false),
+    IO_OR_RUNTIME(false),
+}
 
 @SuppressLint("UseKtx") // Explicit transactions keep revision updates and batch writes visibly atomic.
 class SecureEntryRepository(context: Context) : AutoCloseable {
-    private val database = EntryDatabase(context.applicationContext)
-    private val crypto = EntryCrypto(database.readableDatabase)
+    private val appContext = context.applicationContext
+    private val database = EntryDatabase(appContext)
+    private val crypto = EntryCrypto(appContext, database.readableDatabase)
 
     @Synchronized
     fun list(): List<TotpEntry> {
@@ -257,7 +275,10 @@ internal class AesGcmEnvelopeCrypto(private val key: SecretKey) {
     }
 }
 
-private class EntryCrypto(private val database: SQLiteDatabase) {
+private class EntryCrypto(
+    private val appContext: Context,
+    private val database: SQLiteDatabase,
+) {
     private val key: SecretKey by lazy { loadOrCreateKey() }
     private val envelopeCrypto: AesGcmEnvelopeCrypto by lazy { AesGcmEnvelopeCrypto(key) }
 
@@ -266,35 +287,26 @@ private class EntryCrypto(private val database: SQLiteDatabase) {
 
     fun decrypt(id: String, revision: Long, schema: Int, iv: ByteArray, ciphertext: ByteArray): ByteArray = try {
         envelopeCrypto.decrypt(aad(id, revision, schema), iv, ciphertext)
+    } catch (error: StorageUnavailableException) {
+        throw error
     } catch (error: Exception) {
-        if (error.isLocalStorageKeyFailure()) {
-            throw StorageUnavailableException(
-                "Ключ Android Keystore отсутствует, повреждён или не подходит к локальным данным",
-                error,
-                canRecoverWithLocalReset = true,
-            )
-        }
-        throw StorageUnavailableException("Не удалось прочитать локальное хранилище", error)
+        val kind = classifyStorageCryptoFailure(error, appContext.isDeviceLockedForStorage())
+        throw StorageUnavailableException(kind.userMessage(), error, kind)
     }
 
     private fun loadOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         val key = try {
             keyStore.getKey(KEY_ALIAS, null)
-        } catch (error: UnrecoverableKeyException) {
-            throw StorageUnavailableException(
-                "Ключ Android Keystore повреждён; существующие записи не восстановить",
-                error,
-                canRecoverWithLocalReset = true,
-            )
+        } catch (error: Exception) {
+            val kind = classifyStorageCryptoFailure(error, appContext.isDeviceLockedForStorage())
+            throw StorageUnavailableException(kind.userMessage(), error, kind)
         }
         (key as? SecretKey)?.let { return it }
         val hasRows = database.rawQuery("SELECT 1 FROM entries LIMIT 1", null).use { it.moveToFirst() }
         if (hasRows) {
-            throw StorageUnavailableException(
-                "Ключ Android Keystore отсутствует или не подходит к локальным данным",
-                canRecoverWithLocalReset = true,
-            )
+            val kind = StorageFailureKind.KEY_MISSING
+            throw StorageUnavailableException(kind.userMessage(), kind = kind)
         }
         return generateKey(preferStrongBox = true)
     }
@@ -326,10 +338,40 @@ private class EntryCrypto(private val database: SQLiteDatabase) {
     }
 }
 
-private fun Throwable.isLocalStorageKeyFailure(): Boolean =
-    this is AEADBadTagException ||
-        this is InvalidKeyException ||
-        cause?.isLocalStorageKeyFailure() == true
+private fun Context.isDeviceLockedForStorage(): Boolean {
+    val keyguardManager = getSystemService(KeyguardManager::class.java) ?: return false
+    return keyguardManager.isDeviceLocked
+}
+
+internal fun classifyStorageCryptoFailure(
+    error: Throwable,
+    deviceLocked: Boolean,
+): StorageFailureKind = when {
+    deviceLocked || error.containsCause(UserNotAuthenticatedException::class.java) -> StorageFailureKind.DEVICE_LOCKED
+    error.containsCause(UnrecoverableKeyException::class.java) ||
+        error.containsCause(KeyPermanentlyInvalidatedException::class.java) -> StorageFailureKind.KEY_UNRECOVERABLE
+    error.containsCause(AEADBadTagException::class.java) ||
+        error.containsCause(InvalidKeyException::class.java) -> StorageFailureKind.KEY_MISMATCH_OR_CORRUPT
+    else -> StorageFailureKind.IO_OR_RUNTIME
+}
+
+private fun StorageFailureKind.userMessage(): String = when (this) {
+    StorageFailureKind.DEVICE_LOCKED ->
+        "Устройство заблокировано. Разблокируйте экран и повторите операцию."
+    StorageFailureKind.KEY_MISSING ->
+        "Ключ Android Keystore отсутствует; существующие записи не восстановить"
+    StorageFailureKind.KEY_UNRECOVERABLE ->
+        "Ключ Android Keystore повреждён; существующие записи не восстановить"
+    StorageFailureKind.KEY_MISMATCH_OR_CORRUPT ->
+        "Ключ Android Keystore не подходит к локальным данным или данные повреждены"
+    StorageFailureKind.DATA_MALFORMED ->
+        "Локальное хранилище содержит запись некорректного формата"
+    StorageFailureKind.IO_OR_RUNTIME ->
+        "Не удалось прочитать локальное хранилище"
+}
+
+private fun Throwable.containsCause(type: Class<out Throwable>): Boolean =
+    type.isInstance(this) || cause?.containsCause(type) == true
 
 private object EntryCodec {
     fun encode(entry: TotpEntry): ByteArray = ByteArrayOutputStream().use { bytes ->
