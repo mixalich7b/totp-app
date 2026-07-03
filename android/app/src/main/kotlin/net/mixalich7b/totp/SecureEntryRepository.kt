@@ -13,13 +13,20 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.security.InvalidKeyException
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class StorageUnavailableException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class StorageUnavailableException(
+    message: String,
+    cause: Throwable? = null,
+    val canRecoverWithLocalReset: Boolean = false,
+) : Exception(message, cause)
 
 @SuppressLint("UseKtx") // Explicit transactions keep revision updates and batch writes visibly atomic.
 class SecureEntryRepository(context: Context) : AutoCloseable {
@@ -186,7 +193,7 @@ class SecureEntryRepository(context: Context) : AutoCloseable {
             val appContext = context.applicationContext
             val databasePath = appContext.getDatabasePath(DATABASE_NAME)
             if (databasePath.exists() && !appContext.deleteDatabase(DATABASE_NAME)) {
-                throw StorageUnavailableException("Не удалось удалить повреждённое локальное хранилище")
+                throw StorageUnavailableException("Не удалось удалить локальное хранилище")
             }
             try {
                 KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS)
@@ -260,14 +267,35 @@ private class EntryCrypto(private val database: SQLiteDatabase) {
     fun decrypt(id: String, revision: Long, schema: Int, iv: ByteArray, ciphertext: ByteArray): ByteArray = try {
         envelopeCrypto.decrypt(aad(id, revision, schema), iv, ciphertext)
     } catch (error: Exception) {
-        throw StorageUnavailableException("Не удалось расшифровать локальное хранилище", error)
+        if (error.isLocalStorageKeyFailure()) {
+            throw StorageUnavailableException(
+                "Ключ Android Keystore отсутствует, повреждён или не подходит к локальным данным",
+                error,
+                canRecoverWithLocalReset = true,
+            )
+        }
+        throw StorageUnavailableException("Не удалось прочитать локальное хранилище", error)
     }
 
     private fun loadOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val key = try {
+            keyStore.getKey(KEY_ALIAS, null)
+        } catch (error: UnrecoverableKeyException) {
+            throw StorageUnavailableException(
+                "Ключ Android Keystore повреждён; существующие записи не восстановить",
+                error,
+                canRecoverWithLocalReset = true,
+            )
+        }
+        (key as? SecretKey)?.let { return it }
         val hasRows = database.rawQuery("SELECT 1 FROM entries LIMIT 1", null).use { it.moveToFirst() }
-        if (hasRows) throw StorageUnavailableException("Ключ Android Keystore потерян; существующие записи не восстановить")
+        if (hasRows) {
+            throw StorageUnavailableException(
+                "Ключ Android Keystore отсутствует или не подходит к локальным данным",
+                canRecoverWithLocalReset = true,
+            )
+        }
         return generateKey(preferStrongBox = true)
     }
 
@@ -297,6 +325,11 @@ private class EntryCrypto(private val database: SQLiteDatabase) {
         private const val KEY_ALIAS = SecureEntryRepository.KEY_ALIAS
     }
 }
+
+private fun Throwable.isLocalStorageKeyFailure(): Boolean =
+    this is AEADBadTagException ||
+        this is InvalidKeyException ||
+        cause?.isLocalStorageKeyFailure() == true
 
 private object EntryCodec {
     fun encode(entry: TotpEntry): ByteArray = ByteArrayOutputStream().use { bytes ->

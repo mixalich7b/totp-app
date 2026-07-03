@@ -14,6 +14,7 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import java.security.KeyStore
+import javax.crypto.SecretKey
 
 class SecureEntryRepositoryInstrumentedTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
@@ -88,7 +89,8 @@ class SecureEntryRepositoryInstrumentedTest {
         try {
             SecureEntryRepository(context).use(SecureEntryRepository::list)
             fail("StorageUnavailableException expected")
-        } catch (_: StorageUnavailableException) {
+        } catch (error: StorageUnavailableException) {
+            assertTrue(error.canRecoverWithLocalReset)
             // Expected: encrypted rows must not cause silent key regeneration.
         }
     }
@@ -103,7 +105,8 @@ class SecureEntryRepositoryInstrumentedTest {
         try {
             SecureEntryRepository(context).use(SecureEntryRepository::list)
             fail("StorageUnavailableException expected")
-        } catch (_: StorageUnavailableException) {
+        } catch (error: StorageUnavailableException) {
+            assertTrue(error.canRecoverWithLocalReset)
             // The reset must remain explicit after the repository reports the lost key.
         }
 
@@ -202,8 +205,26 @@ class SecureEntryRepositoryInstrumentedTest {
         try {
             SecureEntryRepository(context).use(SecureEntryRepository::list)
             fail("StorageUnavailableException expected")
-        } catch (_: StorageUnavailableException) {
+        } catch (error: StorageUnavailableException) {
+            assertTrue(error.canRecoverWithLocalReset)
             // Expected: authentication failure is reported as unavailable storage.
+        }
+    }
+
+    @Test
+    fun testMalformedDecryptedPayloadDoesNotAllowStorageReset() {
+        SecureEntryRepository(context).use { repository ->
+            repository.add(listOf(entry("malformed", "Malformed", "", byteArrayOf(4, 3, 2, 1))))
+        }
+        replaceEncryptedPayload("malformed", byteArrayOf(0, 8, 1, 2))
+
+        try {
+            SecureEntryRepository(context).use(SecureEntryRepository::list)
+            fail("Storage read failure expected")
+        } catch (error: StorageUnavailableException) {
+            assertFalse(error.canRecoverWithLocalReset)
+        } catch (_: Exception) {
+            // Expected: malformed plaintext is a regular read/decode failure, not a key reset case.
         }
     }
 
@@ -226,6 +247,40 @@ class SecureEntryRepositoryInstrumentedTest {
     private fun clearStorage() {
         context.deleteDatabase(DATABASE_NAME)
         deleteKey()
+    }
+
+    private fun replaceEncryptedPayload(id: String, plaintext: ByteArray) {
+        val key = KeyStore.getInstance("AndroidKeyStore")
+            .apply { load(null) }
+            .getKey(KEY_ALIAS, null) as SecretKey
+        openDatabase(SQLiteDatabase.OPEN_READWRITE).use { database ->
+            val row = database.query(
+                "entries",
+                arrayOf("revision", "schema_version"),
+                "id = ?",
+                arrayOf(id),
+                null,
+                null,
+                null,
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                cursor.getLong(0) to cursor.getInt(1)
+            }
+            val (revision, schema) = row
+            val envelope = AesGcmEnvelopeCrypto(key).encrypt(
+                "$id|$schema|$revision".toByteArray(Charsets.UTF_8),
+                plaintext,
+            )
+            database.update(
+                "entries",
+                ContentValues().apply {
+                    put("iv", envelope.iv)
+                    put("ciphertext", envelope.ciphertext)
+                },
+                "id = ?",
+                arrayOf(id),
+            )
+        }
     }
 
     private fun deleteKey() {

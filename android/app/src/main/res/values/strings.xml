@@ -43,8 +43,10 @@
     <string name="import_preview_item">%1$s&#10;Issuer: %2$s · аккаунт: %3$s&#10;%4$s · %5$d цифр · %6$d с</string>
     <string name="value_not_set">не указан</string>
     <string name="dialog_delete_record">Удалить запись?</string>
+    <string name="dialog_error">Ошибка</string>
+    <string name="message_retryable_error">%1$s\n\nПопробуйте повторить операцию.</string>
     <string name="dialog_storage_unavailable">Локальные данные недоступны</string>
-    <string name="message_storage_unavailable">Ключ Android Keystore потерян или зашифрованное хранилище повреждено. Восстановить записи нельзя. Сброс безвозвратно удалит все локальные записи; после этого их можно импортировать заново.</string>
+    <string name="message_storage_unavailable">Ключ Android Keystore отсутствует, повреждён или не подходит к локальным данным. Восстановить записи нельзя. Сброс безвозвратно удалит все локальные записи; после этого их можно импортировать заново.</string>
     <string name="storage_reset_complete">Локальное хранилище сброшено</string>
     <string name="sync_sdk_ready">Garmin Connect готов</string>
     <string name="sync_sdk_shutdown">Garmin SDK остановлен</string>

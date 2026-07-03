@@ -17,6 +17,7 @@ class MainActivity : Activity() {
     private lateinit var screen: MainScreen
     private val entryCollection = EntryCollection()
     private var storageResetDialogVisible = false
+    private var errorDialogVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,16 +118,26 @@ class MainActivity : Activity() {
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     private fun handleError(error: Throwable) {
-        if (error is StorageUnavailableException) {
+        if (error is StorageUnavailableException && error.canRecoverWithLocalReset) {
             showStorageResetDialog(error)
         } else {
             showError(error)
         }
     }
+
     private fun showError(error: Throwable) {
-        screen.showStatus(R.string.error_status, error.userMessage())
-        toast(error.userMessage())
+        val message = error.userMessage()
+        screen.showStatus(R.string.error_status, message)
+        if (errorDialogVisible || storageResetDialogVisible || isFinishing || isDestroyed) return
+        errorDialogVisible = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_error)
+            .setMessage(getString(R.string.message_retryable_error, message))
+            .setPositiveButton(android.R.string.ok, null)
+            .setOnDismissListener { errorDialogVisible = false }
+            .show()
     }
+
     private fun Throwable.userMessage() = message ?: javaClass.simpleName
 
     override fun onDestroy() {
