@@ -2,7 +2,7 @@ import Toybox.Application;
 import Toybox.Lang;
 
 (:glance, :background)
-function totpValuesEqual(left, right) {
+function totpValuesEqual(left, right) as Lang.Boolean {
     return left == null ? right == null : left.equals(right);
 }
 
@@ -16,15 +16,20 @@ class TotpStore {
     private const MAX_ENTRY_ID_LENGTH = 64;
     private const MAX_NAME_LENGTH = 128;
     private const MAX_SECRET_LENGTH = 1024;
+    private var _totpCore as TotpCore;
+
+    public function initialize(totpCore as TotpCore) {
+        _totpCore = totpCore;
+    }
 
     (:glance, :background)
-    private function activeSnapshot() {
+    private function activeSnapshot() as Null or Lang.Dictionary {
         var value = Application.Storage.getValue(ACTIVE_SNAPSHOT);
         return value instanceof Lang.Dictionary ? value : null;
     }
 
     (:glance)
-    public function entries() {
+    public function entries() as Lang.Array<Lang.Dictionary<String, Object>> {
         var snapshot = activeSnapshot();
         if (snapshot == null || !(snapshot["e"] instanceof Lang.Array)) {
             return [];
@@ -58,14 +63,18 @@ class TotpStore {
     }
 
     (:glance, :background)
-    public function favoriteId() {
-        return Application.Storage.getValue(FAVORITE);
+    public function favoriteId() as Null or String {
+        var favouriteId = Application.Storage.getValue(FAVORITE);
+        if (favouriteId == null || !(favouriteId instanceof Lang.String)) {
+            return null;
+        }
+        return favouriteId;
     }
 
     (:glance)
-    public function favorite() {
-        var all = entries();
+    public function favorite() as Null or Lang.Dictionary<String, Object> {
         var id = favoriteId();
+        var all = entries();
         for (var index = 0; index < all.size(); index++) {
             if (totpValuesEqual(all[index]["i"], id)) {
                 return all[index];
@@ -75,7 +84,7 @@ class TotpStore {
     }
 
     (:background)
-    public function setFavorite(id) {
+    public function setFavorite(id as String) {
         Application.Storage.setValue(FAVORITE, id);
     }
 
@@ -87,7 +96,7 @@ class TotpStore {
     }
 
     (:background)
-    public function begin(message) {
+    public function begin(message as Lang.Dictionary) {
         if (message == null || message["v"] != 1) {
             return "Unsupported protocol";
         }
@@ -119,7 +128,7 @@ class TotpStore {
     }
 
     (:background)
-    public function chunk(message) {
+    public function chunk(message as Lang.Dictionary) {
         var staging = Application.Storage.getValue(STAGING_SNAPSHOT);
         if (!(staging instanceof Lang.Dictionary)
                 || !totpValuesEqual(message == null ? null : message["x"], staging["x"])) {
@@ -132,11 +141,11 @@ class TotpStore {
                 || sequence != entries.size() || sequence >= staging["n"]) {
             return failStaging("Wrong sequence");
         }
-        var entry = message["e"];
+        var entry = message["e"] as Lang.Dictionary;
         if (!validEntry(entry)) {
             return failStaging("Invalid record");
         }
-        var period = entry["p"];
+        var period = entry["p"] as Number;
         if ((entry["a"] != 1 && entry["a"] != 2)
                 || (entry["d"] != 6 && entry["d"] != 8)
                 || period < 5 || period > 300) {
@@ -149,7 +158,7 @@ class TotpStore {
     }
 
     (:background)
-    public function commit(message) {
+    public function commit(message as Lang.Dictionary) {
         var transferId = message == null ? null : message["x"];
         var staging = Application.Storage.getValue(STAGING_SNAPSHOT);
         if (!(staging instanceof Lang.Dictionary) || !totpValuesEqual(transferId, staging["x"])) {
@@ -163,7 +172,7 @@ class TotpStore {
         if (!(entries instanceof Lang.Array) || entries.size() != staging["n"]) {
             return failStaging("Incomplete snapshot");
         }
-        if (!totpValuesEqual((new TotpCore()).snapshotHash(entries), staging["h"])) {
+        if (!totpValuesEqual(_totpCore.snapshotHash(entries), staging["h"])) {
             return failStaging("Checksum mismatch");
         }
 

@@ -7,6 +7,8 @@ import Toybox.WatchUi;
 (:background)
 class TotpMixalich7bApp extends Application.AppBase {
     private var _view = null;
+    private const _totpCore = new TotpCore();
+    private const _store = new TotpStore(_totpCore);
 
     public function initialize() {
         AppBase.initialize();
@@ -28,12 +30,12 @@ class TotpMixalich7bApp extends Application.AppBase {
     }
 
     public function getInitialView() {
-        _view = new TotpView();
+        _view = new TotpView(new Timer.Timer(), _store, _totpCore);
         return [_view, new TotpDelegate(_view)];
     }
 
     public function getServiceDelegate() {
-        return [new TotpSyncServiceDelegate()];
+        return [new TotpSyncServiceDelegate(_store)];
     }
 
     public function onStorageChanged() {
@@ -44,6 +46,6 @@ class TotpMixalich7bApp extends Application.AppBase {
 
     (:glance)
     public function getGlanceView() {
-        return [new TotpGlanceView()];
+        return [new TotpGlanceView(_store, _totpCore)];
     }
 }

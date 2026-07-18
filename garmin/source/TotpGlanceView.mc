@@ -1,12 +1,18 @@
 import Toybox.Graphics;
 import Toybox.Time;
 import Toybox.WatchUi;
+import Toybox.Lang;
 
 (:glance)
 class TotpGlanceView extends WatchUi.GlanceView {
+    private var _store as TotpStore;
+    private var _totpCore as TotpCore;
+
     (:glance)
-    public function initialize() {
+    public function initialize(store as TotpStore, totpCore as TotpCore) {
         GlanceView.initialize();
+        _store = store;
+        _totpCore = totpCore;
     }
 
     (:glance)
@@ -15,13 +21,12 @@ class TotpGlanceView extends WatchUi.GlanceView {
         dc.clear();
         var width = dc.getWidth();
         var height = dc.getHeight();
-        var store = new TotpStore();
-        if (store.isCorrupt()) {
+        if (_store.isCorrupt()) {
             dc.drawText(8, height / 2, Graphics.FONT_XTINY,
                 WatchUi.loadResource(Rez.Strings.CorruptStorage), Graphics.TEXT_JUSTIFY_LEFT);
             return;
         }
-        var entry = store.favorite();
+        var entry = _store.favorite();
         if (entry == null) {
             dc.drawText(8, height / 2, Graphics.FONT_XTINY, "TOTP: --", Graphics.TEXT_JUSTIFY_LEFT);
             return;
@@ -32,13 +37,15 @@ class TotpGlanceView extends WatchUi.GlanceView {
                 WatchUi.loadResource(Rez.Strings.InvalidTime), Graphics.TEXT_JUSTIFY_LEFT);
             return;
         }
-        var code = (new TotpCore()).generate(entry, now);
-        var remaining = entry["p"] - (now % entry["p"]);
-        var rawName = entry["n"];
+        var entrySafe = entry;
+        var code = _totpCore.generate(entrySafe, now);
+        var period = entrySafe["p"] as Number;
+        var remaining = period - (now % period);
+        var rawName = entrySafe["n"] as String;
         var shortName = rawName.length() > 24 ? rawName.substring(0, 23) + "…" : rawName;
         dc.drawText(8, 2, Graphics.FONT_XTINY, shortName, Graphics.TEXT_JUSTIFY_LEFT);
         dc.drawText(8, height / 2, Graphics.FONT_SMALL, code, Graphics.TEXT_JUSTIFY_LEFT);
         dc.setColor(remaining <= 5 ? Graphics.COLOR_RED : Graphics.COLOR_DK_GREEN, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(8, height - 7, ((width - 16) * remaining) / entry["p"], 7);
+        dc.fillRectangle(8, height - 7, ((width - 16) * remaining) / period, 7);
     }
 }

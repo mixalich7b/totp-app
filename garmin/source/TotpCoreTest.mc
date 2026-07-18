@@ -66,7 +66,8 @@ function testCorruptActiveStorageIsDetected(logger as Test.Logger) as Boolean {
     Application.Storage.setValue("active_snapshot", {
         "e" => [testEntry("bad", "Bad", [999])], "r" => 1, "x" => "tx"
     });
-    var corrupt = (new TotpStore()).isCorrupt();
+    var totpCore = new TotpCore();
+    var corrupt = (new TotpStore(totpCore)).isCorrupt();
     clearTestStorage();
     return corrupt;
 }
@@ -80,7 +81,8 @@ function testProtocolClearRemovesAllStorage(logger as Test.Logger) as Boolean {
     Application.Storage.setValue("staging_snapshot", {"e" => [], "r" => 2,
         "x" => "tx-staged", "n" => 1, "h" => "hash"});
 
-    (new TotpStore()).clearAll();
+    var totpCore = new TotpCore();
+    (new TotpStore(totpCore)).clearAll();
     return Application.Storage.getValue("active_snapshot") == null
         && Application.Storage.getValue("favorite") == null
         && Application.Storage.getValue("staging_snapshot") == null;
@@ -90,8 +92,9 @@ function testProtocolClearRemovesAllStorage(logger as Test.Logger) as Boolean {
 function testProtocolCommitIsAtomicAndIdempotent(logger as Test.Logger) as Boolean {
     clearTestStorage();
     var entry = testEntry("protocol-entry", "Test", [1, 2, 3, 4]);
-    var hash = (new TotpCore()).snapshotHash([entry]);
-    var store = new TotpStore();
+    var totpCore = new TotpCore();
+    var hash = totpCore.snapshotHash([entry]);
+    var store = new TotpStore(totpCore);
     var beginResult = store.begin({"v" => 1, "x" => "tx-valid", "r" => 7, "n" => 1, "h" => hash});
     var chunkResult = store.chunk({"x" => "tx-valid", "q" => 0, "e" => entry});
     var commitResult = store.commit({"x" => "tx-valid"});
@@ -119,8 +122,8 @@ function testProtocolErrorsClearStagingAndPreserveActive(logger as Test.Logger) 
     clearTestStorage();
     var oldEntry = testEntry("old", "Old", [1]);
     var entry = testEntry("new", "New", [2]);
-    var store = new TotpStore();
     var core = new TotpCore();
+    var store = new TotpStore(core);
     store.begin({"v" => 1, "x" => "old-tx", "r" => 10, "n" => 1,
         "h" => core.snapshotHash([oldEntry])});
     store.chunk({"x" => "old-tx", "q" => 0, "e" => oldEntry});
@@ -152,7 +155,8 @@ function testProtocolErrorsClearStagingAndPreserveActive(logger as Test.Logger) 
 (:test)
 function testProtocolRejectsInvalidBoundsAndByteValues(logger as Test.Logger) as Boolean {
     clearTestStorage();
-    var store = new TotpStore();
+    var core = new TotpCore();
+    var store = new TotpStore(core);
     var hash = "0000000000000000000000000000000000000000000000000000000000000000";
     var tooMany = store.begin({"v" => 1, "x" => "tx-many", "r" => 1, "n" => 101, "h" => hash});
     var invalidHash = store.begin({"v" => 1, "x" => "tx-hash", "r" => 1, "n" => 0, "h" => "short"});
@@ -172,8 +176,9 @@ function testProtocolRejectsInvalidBoundsAndByteValues(logger as Test.Logger) as
 (:test)
 function testNewBeginReplacesAbandonedStaging(logger as Test.Logger) as Boolean {
     clearTestStorage();
-    var store = new TotpStore();
-    var hash = (new TotpCore()).snapshotHash([]);
+    var core = new TotpCore();
+    var store = new TotpStore(core);
+    var hash = core.snapshotHash([]);
     store.begin({"v" => 1, "x" => "abandoned", "r" => 1, "n" => 0, "h" => hash});
     var result = store.begin({"v" => 1, "x" => "replacement", "r" => 2, "n" => 0, "h" => hash});
     var staging = Application.Storage.getValue("staging_snapshot") as Lang.Dictionary;
@@ -191,8 +196,9 @@ function testProtocolRecoversWithCompleteRetry(logger as Test.Logger) as Boolean
     var first = testEntry("first", "First", [2]);
     var second = {"i" => "second", "n" => "Second", "s" => [3], "a" => 2, "d" => 8, "p" => 60};
     var entries = [first, second];
-    var store = new TotpStore();
-    var hash = (new TotpCore()).snapshotHash(entries);
+    var core = new TotpCore();
+    var store = new TotpStore(core);
+    var hash = core.snapshotHash(entries);
     store.begin({"v" => 1, "x" => "partial", "r" => 11, "n" => 2, "h" => hash});
     store.chunk({"x" => "partial", "q" => 0, "e" => first});
     var incomplete = store.commit({"x" => "partial"});
@@ -200,7 +206,7 @@ function testProtocolRecoversWithCompleteRetry(logger as Test.Logger) as Boolean
     var firstResult = store.chunk({"x" => "retry", "q" => 0, "e" => first});
     var secondResult = store.chunk({"x" => "retry", "q" => 1, "e" => second});
     var commit = store.commit({"x" => "retry"});
-    var active = (new TotpStore()).entries();
+    var active = store.entries();
     var passed = true;
     if (!incomplete.equals("Incomplete snapshot")) { passed = false; }
     if (firstResult != null || secondResult != null) { passed = false; }

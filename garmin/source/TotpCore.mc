@@ -4,9 +4,9 @@ import Toybox.Lang;
 (:glance, :background)
 class TotpCore {
     (:glance)
-    public function generate(entry, unixSeconds) {
-        var secret = toBytes(entry["s"]);
-        var period = entry["p"];
+    public function generate(entry as Lang.Dictionary<String, Object>, unixSeconds as Lang.Number) {
+        var secret = toBytes(entry["s"]) as ByteArray;
+        var period = entry["p"] as Number;
         var counter = (unixSeconds / period).toLong();
         var message = []b;
         for (var shift = 56; shift >= 0; shift -= 8) {
@@ -34,7 +34,7 @@ class TotpCore {
         return (binary % modulus).format(digits == 8 ? "%08d" : "%06d");
     }
 
-    private function hmacSha1(key, message) {
+    private function hmacSha1(key as ByteArray, message as ByteArray) as ByteArray {
         if (key.size() > 64) {
             var keyHash = new Cryptography.Hash({:algorithm => Cryptography.HASH_SHA1});
             keyHash.update(key);
@@ -59,7 +59,7 @@ class TotpCore {
     }
 
     (:glance, :background)
-    public function toBytes(values) {
+    public function toBytes(values as Lang.Array<Number>) as ByteArray {
         var bytes = []b;
         for (var index = 0; index < values.size(); index++) {
             bytes.add(values[index] & 0xff);
@@ -68,7 +68,7 @@ class TotpCore {
     }
 
     (:background)
-    public function snapshotHash(entries) {
+    public function snapshotHash(entries as Lang.Array<Lang.Dictionary>) {
         var hash = new Cryptography.Hash({:algorithm => Cryptography.HASH_SHA256});
         for (var index = 0; index < entries.size(); index++) {
             var entry = entries[index];

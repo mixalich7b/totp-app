@@ -4,7 +4,7 @@ import Toybox.Lang;
 import Toybox.System;
 
 (:background)
-function syncMessageType(rawType) {
+function syncMessageType(rawType as Null or Object) as Null or String {
     if (rawType == null) {
         return null;
     }
@@ -26,18 +26,27 @@ function syncMessageType(rawType) {
 
 (:background)
 class TotpSyncServiceDelegate extends System.ServiceDelegate {
-    public function initialize() {
+    private var _store as TotpStore;
+
+    public function initialize(store as TotpStore) {
         ServiceDelegate.initialize();
+        _store = store;
     }
 
     public function onPhoneAppMessage(phoneMessage as PhoneAppMessage) as Void {
-        var messageType = phoneMessage.data == null ? null : syncMessageType(phoneMessage.data["t"]);
-        var transferId = phoneMessage.data == null ? null : phoneMessage.data["x"];
+        if (phoneMessage.data == null || !(phoneMessage.data instanceof Lang.Dictionary)) {
+            System.println("TOTP sync received empty message");
+            Background.exit(null);
+            return;
+        }
+        var data = phoneMessage.data as Lang.Dictionary<String, Object>;
+        var messageType = syncMessageType(data["t"]);
+        var transferId = data["x"] as String;
         var safeType = safeMessageType(messageType);
         System.println("TOTP sync received type=" + safeType);
         var response;
         try {
-            response = handle(phoneMessage.data);
+            response = handle(data);
         } catch (error) {
             System.println("TOTP sync rejected: internal validation error");
             response = {"t" => "e", "m" => "Invalid message"};
@@ -60,24 +69,23 @@ class TotpSyncServiceDelegate extends System.ServiceDelegate {
         }
     }
 
-    private function handle(message) {
+    private function handle(message as Lang.Dictionary) as Null or Lang.Dictionary {
         if (message == null || message["t"] == null) {
             System.println("TOTP sync rejected: missing message type");
             return {"t" => "e", "m" => "Invalid message"};
         }
         var messageType = syncMessageType(message["t"]);
         var transferId = message["x"];
-        var store = new TotpStore();
         var error = null;
         if (messageType.equals("b")) {
             System.println("TOTP sync begin");
-            error = store.begin(message);
+            error = _store.begin(message);
         } else if (messageType.equals("c")) {
             System.println("TOTP sync chunk");
-            error = store.chunk(message);
+            error = _store.chunk(message);
         } else if (messageType.equals("m")) {
             System.println("TOTP sync commit");
-            var revision = store.commit(message);
+            var revision = _store.commit(message);
             if (revision instanceof Number || revision instanceof Long) {
                 System.println("TOTP sync committed revision=" + revision);
                 return {"t" => "a", "r" => revision};
@@ -88,7 +96,7 @@ class TotpSyncServiceDelegate extends System.ServiceDelegate {
                 error = "Invalid clear";
             } else {
                 System.println("TOTP sync clearing watch data");
-                store.clearAll();
+                _store.clearAll();
                 return {"t" => "z", "x" => transferId};
             }
         } else {
@@ -127,9 +135,9 @@ class TotpSyncServiceDelegate extends System.ServiceDelegate {
 
 (:background)
 class TotpSyncConnectionListener extends Communications.ConnectionListener {
-    private var _responseType;
+    private var _responseType as String;
 
-    public function initialize(responseType) {
+    public function initialize(responseType as String) {
         ConnectionListener.initialize();
         _responseType = responseType;
     }
