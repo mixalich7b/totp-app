@@ -30,7 +30,7 @@ class TotpMixalich7bApp extends Application.AppBase {
     }
 
     public function getInitialView() {
-        _view = new TotpView(new Timer.Timer(), _store, _totpCore);
+        _view = new TotpView(new Timer.Timer(), _store);
         return [_view, new TotpDelegate(_view)];
     }
 
@@ -39,6 +39,7 @@ class TotpMixalich7bApp extends Application.AppBase {
     }
 
     public function onStorageChanged() {
+        _store.refreshStorage();
         if (_view != null) {
             WatchUi.requestUpdate();
         }
@@ -46,6 +47,6 @@ class TotpMixalich7bApp extends Application.AppBase {
 
     (:glance)
     public function getGlanceView() {
-        return [new TotpGlanceView(_store, _totpCore)];
+        return [new TotpGlanceView(new Timer.Timer(), _store)];
     }
 }

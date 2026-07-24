@@ -6,13 +6,25 @@ import Toybox.Lang;
 (:glance)
 class TotpGlanceView extends WatchUi.GlanceView {
     private var _store as TotpStore;
-    private var _totpCore as TotpCore;
+    private var _timer as Toybox.Timer.Timer;
 
     (:glance)
-    public function initialize(store as TotpStore, totpCore as TotpCore) {
+    public function initialize(timer as Toybox.Timer.Timer, store as TotpStore) {
         GlanceView.initialize();
+        _timer = timer;
         _store = store;
-        _totpCore = totpCore;
+    }
+
+    public function onShow() {
+        _timer.start(method(:tick), 2000, true);
+    }
+
+    public function onHide() {
+        _timer.stop();
+    }
+
+    public function tick() as Void {
+        WatchUi.requestUpdate();
     }
 
     (:glance)
@@ -38,7 +50,7 @@ class TotpGlanceView extends WatchUi.GlanceView {
             return;
         }
         var entrySafe = entry;
-        var code = _totpCore.generate(entrySafe, now);
+        var code = _store.codeFor(entrySafe, now);
         var period = entrySafe["p"] as Number;
         var remaining = period - (now % period);
         var rawName = entrySafe["n"] as String;

@@ -71,13 +71,25 @@ Watch app и glance входят в один Connect IQ package.
 
 - `TotpMixalich7bApp` регистрирует background mailbox и создаёт foreground/glance UI.
 - `TotpView` показывает список и обрабатывает кнопки и touch-жесты.
-- `TotpGlanceView` читает favorite и вычисляет код при обновлении glance.
+- `TotpGlanceView` показывает локальный favorite и его текущий код.
 - `TotpStore` валидирует и атомарно переключает active snapshot через staging.
 - `TotpSyncServiceDelegate` принимает сообщения телефона в background context.
 - `TotpCore` реализует TOTP и канонический snapshot hash.
 
-Glance обновляется с частотой, выбранной Garmin OS; посекундное обновление вне
-открытого приложения не гарантируется. Нажатие на glance открывает watch app.
+В каждом runtime context `TotpStore` лениво читает active snapshot и favorite один
+раз, после чего обслуживает UI из памяти. Изменения из другого context обновляют
+кэш через `AppBase.onStorageChanged()`, а собственные commit, clear и смена favorite
+обновляют его непосредственно. Изменения только staging не сбрасывают active cache.
+
+Рассчитанный код кэшируется по ID записи и номеру TOTP time-step. Повторные
+посекундные обновления UI внутри одного периода не выполняют HMAC; пересчёт
+происходит при смене time-step или active snapshot. Секундный foreground timer
+остаётся нужен для индикатора оставшегося времени.
+
+На устройствах с Live UI открытый glance запрашивает обновление раз в две секунды.
+На устройствах с background UI вызовы `WatchUi.requestUpdate()` могут
+игнорироваться, и фактическую частоту обновления выбирает Garmin OS. Нажатие на
+glance открывает watch app.
 
 HMAC-SHA1 реализован через `Cryptography.Hash(HASH_SHA1)` по ipad/opad-схеме:
 целевой runtime принимает SHA-256 в native HMAC, но отклоняет SHA-1.

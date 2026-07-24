@@ -16,13 +16,11 @@ class TotpView extends WatchUi.View {
     private var _selected = 0;
     private var _timer as Toybox.Timer.Timer;
     private var _store as TotpStore;
-    private var _totpCore as TotpCore;
 
-    public function initialize(timer as Toybox.Timer.Timer, store as TotpStore, totpCore as TotpCore) {
+    public function initialize(timer as Toybox.Timer.Timer, store as TotpStore) {
         View.initialize();
         _timer = timer;
         _store = store;
-        _totpCore = totpCore;
     }
 
     public function onShow() {
@@ -77,13 +75,14 @@ class TotpView extends WatchUi.View {
                 WatchUi.loadResource(Rez.Strings.InvalidTime), Graphics.TEXT_JUSTIFY_CENTER);
             return;
         }
+        var favorite = _store.favoriteId();
         for (var offset = -1; offset <= 1; offset++) {
             var index = _selected + offset;
             if (index < 0 || index >= entries.size()) { continue; }
             var entry = entries[index];
             var y = height / 2 - 60 + offset * 110;
             var isSelected = offset == 0;
-            var isFavorite = totpValuesEqual(entry["i"], _store.favoriteId());
+            var isFavorite = totpValuesEqual(entry["i"], favorite);
             dc.setColor(isSelected ? Graphics.COLOR_WHITE : Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
             var rawName = entry["n"] as String;
             var shortName = rawName.length() > 28 ? rawName.substring(0, 27) + "…" : rawName;
@@ -91,7 +90,7 @@ class TotpView extends WatchUi.View {
             dc.drawText(width / 2, isSelected ? y - 60 : y - 40, isSelected ? Graphics.FONT_SMALL : Graphics.FONT_XTINY,
                 name, Graphics.TEXT_JUSTIFY_CENTER);
             dc.drawText(width / 2, isSelected ? y - 25 : y - 5, isSelected ? Graphics.FONT_NUMBER_MILD : Graphics.FONT_SMALL,
-                _totpCore.generate(entry, now), Graphics.TEXT_JUSTIFY_CENTER);
+                _store.codeFor(entry, now), Graphics.TEXT_JUSTIFY_CENTER);
         }
 
         var current = entries[_selected];

@@ -15,6 +15,25 @@ function testEntry(id as String, name as String, secret as Lang.Array) as Lang.D
     return {"i" => id, "n" => name, "s" => secret, "a" => 1, "d" => 6, "p" => 30};
 }
 
+class CountingTotpCore extends TotpCore {
+    private var _generateCalls = 0;
+
+    public function initialize() {
+        TotpCore.initialize();
+    }
+
+    public function generate(
+            entry as Lang.Dictionary<String, Object>,
+            unixSeconds as Lang.Number) {
+        _generateCalls++;
+        return _generateCalls.format("%06d");
+    }
+
+    public function generateCalls() {
+        return _generateCalls;
+    }
+}
+
 (:test)
 function testRfc6238Sha1(logger as Test.Logger) as Boolean {
     var entry = {
@@ -73,6 +92,98 @@ function testCorruptActiveStorageIsDetected(logger as Test.Logger) as Boolean {
 }
 
 (:test)
+function testStorageCacheRefreshesOnlyWhenRequested(logger as Test.Logger) as Boolean {
+    clearTestStorage();
+    Application.Storage.setValue("active_snapshot", {
+        "e" => [testEntry("first", "First", [1])], "r" => 1, "x" => "tx-first"
+    });
+    Application.Storage.setValue("favorite", "first");
+    var store = new TotpStore(new TotpCore());
+    var initialEntries = store.entries();
+    var initialFavorite = store.favoriteId();
+
+    Application.Storage.setValue("active_snapshot", {
+        "e" => [testEntry("second", "Second", [2])], "r" => 2, "x" => "tx-second"
+    });
+    Application.Storage.setValue("favorite", "second");
+    var cachedEntries = store.entries();
+    var cachedFavorite = store.favoriteId();
+    store.refreshStorage();
+    var refreshedEntries = store.entries();
+    var refreshedFavorite = store.favoriteId();
+
+    Application.Storage.setValue("active_snapshot", {
+        "e" => [testEntry("bad", "Bad", [999])], "r" => 3, "x" => "tx-bad"
+    });
+    var validUntilRefresh = !store.isCorrupt();
+    store.refreshStorage();
+    var corruptAfterRefresh = store.isCorrupt();
+    Application.Storage.deleteValue("active_snapshot");
+    store.refreshStorage();
+    var emptyAfterClear = !store.isCorrupt() && store.entries().size() == 0;
+
+    var passed = initialEntries.size() == 1
+        && totpValuesEqual(initialEntries[0]["i"], "first")
+        && totpValuesEqual(initialFavorite, "first")
+        && totpValuesEqual(cachedEntries[0]["i"], "first")
+        && totpValuesEqual(cachedFavorite, "first")
+        && refreshedEntries.size() == 1
+        && totpValuesEqual(refreshedEntries[0]["i"], "second")
+        && totpValuesEqual(refreshedFavorite, "second")
+        && validUntilRefresh && corruptAfterRefresh && emptyAfterClear;
+    clearTestStorage();
+    return passed;
+}
+
+(:test)
+function testCodeCacheUsesTotpTimeStep(logger as Test.Logger) as Boolean {
+    var core = new CountingTotpCore();
+    var store = new TotpStore(core);
+    var entry = testEntry("cached", "Cached", [1]);
+    var first = store.codeFor(entry, 30);
+    var sameStep = store.codeFor(entry, 59);
+    var nextStep = store.codeFor(entry, 60);
+    var afterClockRollback = store.codeFor(entry, 59);
+    return core.generateCalls() == 3
+        && first.equals(sameStep)
+        && !nextStep.equals(sameStep)
+        && !afterClockRollback.equals(nextStep);
+}
+
+(:test)
+function testStorageRefreshPreservesOrInvalidatesCodeCache(logger as Test.Logger) as Boolean {
+    clearTestStorage();
+    var initial = testEntry("cached", "Initial", [1]);
+    Application.Storage.setValue("active_snapshot", {
+        "e" => [initial], "r" => 1, "x" => "tx-initial"
+    });
+    var core = new CountingTotpCore();
+    var store = new TotpStore(core);
+    var loaded = store.entries();
+    var firstCode = store.codeFor(loaded[0], 30);
+
+    Application.Storage.setValue("staging_snapshot", {
+        "e" => [], "r" => 2, "x" => "tx-staging", "n" => 1, "h" => "hash"
+    });
+    store.refreshStorage();
+    var codeAfterStagingChange = store.codeFor(store.entries()[0], 30);
+
+    var replacement = testEntry("cached", "Replacement", [2]);
+    Application.Storage.setValue("active_snapshot", {
+        "e" => [replacement], "r" => 2, "x" => "tx-replacement"
+    });
+    store.refreshStorage();
+    var codeAfterCommit = store.codeFor(store.entries()[0], 30);
+
+    var passed = core.generateCalls() == 2
+        && firstCode.equals(codeAfterStagingChange)
+        && !codeAfterCommit.equals(codeAfterStagingChange)
+        && totpValuesEqual(store.entries()[0]["n"], "Replacement");
+    clearTestStorage();
+    return passed;
+}
+
+(:test)
 function testProtocolClearRemovesAllStorage(logger as Test.Logger) as Boolean {
     clearTestStorage();
     Application.Storage.setValue("active_snapshot", {"e" => [testEntry("a", "A", [1])],
@@ -86,6 +197,29 @@ function testProtocolClearRemovesAllStorage(logger as Test.Logger) as Boolean {
     return Application.Storage.getValue("active_snapshot") == null
         && Application.Storage.getValue("favorite") == null
         && Application.Storage.getValue("staging_snapshot") == null;
+}
+
+(:test)
+function testLocalStorageWritesUpdateCacheImmediately(logger as Test.Logger) as Boolean {
+    clearTestStorage();
+    Application.Storage.setValue("active_snapshot", {
+        "e" => [testEntry("first", "First", [1]), testEntry("second", "Second", [2])],
+        "r" => 1, "x" => "tx-active"
+    });
+    Application.Storage.setValue("favorite", "first");
+    var store = new TotpStore(new TotpCore());
+    var loaded = store.entries().size() == 2
+        && totpValuesEqual(store.favoriteId(), "first");
+    store.setFavorite("second");
+    var favoriteUpdated = totpValuesEqual(store.favoriteId(), "second");
+    store.clearAll();
+    var cacheCleared = store.entries().size() == 0
+        && store.favoriteId() == null
+        && !store.isCorrupt();
+    var storageCleared = Application.Storage.getValue("active_snapshot") == null
+        && Application.Storage.getValue("favorite") == null;
+    clearTestStorage();
+    return loaded && favoriteUpdated && cacheCleared && storageCleared;
 }
 
 (:test)

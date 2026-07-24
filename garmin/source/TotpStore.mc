@@ -17,6 +17,13 @@ class TotpStore {
     private const MAX_NAME_LENGTH = 128;
     private const MAX_SECRET_LENGTH = 1024;
     private var _totpCore as TotpCore;
+    private var _activeLoaded = false;
+    private var _activeSnapshot as Null or Lang.Dictionary = null;
+    private var _entries as Lang.Array<Lang.Dictionary<String, Object>> = [];
+    private var _corrupt = false;
+    private var _favoriteLoaded = false;
+    private var _favoriteId as Null or String = null;
+    private var _codeCache as Lang.Dictionary<String, Lang.Dictionary> = {};
 
     public function initialize(totpCore as TotpCore) {
         _totpCore = totpCore;
@@ -24,51 +31,26 @@ class TotpStore {
 
     (:glance, :background)
     private function activeSnapshot() as Null or Lang.Dictionary {
-        var value = Application.Storage.getValue(ACTIVE_SNAPSHOT);
-        return value instanceof Lang.Dictionary ? value : null;
+        ensureActiveLoaded();
+        return _activeSnapshot;
     }
 
     (:glance)
     public function entries() as Lang.Array<Lang.Dictionary<String, Object>> {
-        var snapshot = activeSnapshot();
-        if (snapshot == null || !(snapshot["e"] instanceof Lang.Array)) {
-            return [];
-        }
-        var storedEntries = snapshot["e"] as Lang.Array;
-        for (var index = 0; index < storedEntries.size(); index++) {
-            if (!validEntry(storedEntries[index])) { return []; }
-        }
-        return storedEntries;
+        ensureActiveLoaded();
+        return _entries;
     }
 
     (:glance)
     public function isCorrupt() {
-        var raw = Application.Storage.getValue(ACTIVE_SNAPSHOT);
-        if (raw == null) {
-            return false;
-        }
-        if (!(raw instanceof Lang.Dictionary)) {
-            return true;
-        }
-        if (!(raw["e"] instanceof Lang.Array)
-                || !(raw["r"] instanceof Number || raw["r"] instanceof Long)
-                || !(raw["x"] instanceof String)) {
-            return true;
-        }
-        var storedEntries = raw["e"] as Lang.Array;
-        for (var index = 0; index < storedEntries.size(); index++) {
-            if (!validEntry(storedEntries[index])) { return true; }
-        }
-        return false;
+        ensureActiveLoaded();
+        return _corrupt;
     }
 
     (:glance, :background)
     public function favoriteId() as Null or String {
-        var favouriteId = Application.Storage.getValue(FAVORITE);
-        if (favouriteId == null || !(favouriteId instanceof Lang.String)) {
-            return null;
-        }
-        return favouriteId;
+        ensureFavoriteLoaded();
+        return _favoriteId;
     }
 
     (:glance)
@@ -86,6 +68,8 @@ class TotpStore {
     (:background)
     public function setFavorite(id as String) {
         Application.Storage.setValue(FAVORITE, id);
+        _favoriteId = id;
+        _favoriteLoaded = true;
     }
 
     (:background)
@@ -93,6 +77,31 @@ class TotpStore {
         clearStaging();
         Application.Storage.deleteValue(ACTIVE_SNAPSHOT);
         Application.Storage.deleteValue(FAVORITE);
+        adoptActive(null, false);
+        _favoriteId = null;
+        _favoriteLoaded = true;
+    }
+
+    (:glance, :background)
+    public function refreshStorage() {
+        adoptActive(Application.Storage.getValue(ACTIVE_SNAPSHOT), true);
+        adoptFavorite(Application.Storage.getValue(FAVORITE));
+    }
+
+    (:glance)
+    public function codeFor(entry as Lang.Dictionary<String, Object>, unixSeconds as Lang.Number) {
+        var period = entry["p"] as Number;
+        var counter = (unixSeconds / period).toLong();
+        var id = entry["i"] as String;
+        var cached = _codeCache[id];
+        if (cached instanceof Lang.Dictionary
+                && cached["c"] == counter
+                && cached["v"] instanceof Lang.String) {
+            return cached["v"];
+        }
+        var code = _totpCore.generate(entry, unixSeconds);
+        _codeCache[id] = {"c" => counter, "v" => code};
+        return code;
     }
 
     (:background)
@@ -178,11 +187,13 @@ class TotpStore {
 
         var revision = staging["r"];
         // entries, revision and last transfer become visible with one storage write.
-        Application.Storage.setValue(ACTIVE_SNAPSHOT, {
+        var active = {
             "e" => entries,
             "r" => revision,
             "x" => transferId
-        });
+        };
+        Application.Storage.setValue(ACTIVE_SNAPSHOT, active);
+        adoptActive(active, false);
 
         var favorite = favoriteId();
         var found = false;
@@ -196,10 +207,84 @@ class TotpStore {
                 setFavorite(first["i"]);
             } else {
                 Application.Storage.deleteValue(FAVORITE);
+                _favoriteId = null;
+                _favoriteLoaded = true;
             }
         }
         clearStaging();
         return revision;
+    }
+
+    (:glance, :background)
+    private function ensureActiveLoaded() {
+        if (!_activeLoaded) {
+            adoptActive(Application.Storage.getValue(ACTIVE_SNAPSHOT), false);
+        }
+    }
+
+    (:glance, :background)
+    private function ensureFavoriteLoaded() {
+        if (!_favoriteLoaded) {
+            adoptFavorite(Application.Storage.getValue(FAVORITE));
+        }
+    }
+
+    (:glance, :background)
+    private function adoptActive(raw, preserveIfSame) {
+        var nextSnapshot = null;
+        var nextEntries = [];
+        var nextCorrupt = false;
+        if (raw != null) {
+            if (validSnapshot(raw)) {
+                nextSnapshot = raw as Lang.Dictionary;
+                nextEntries = nextSnapshot["e"] as Lang.Array;
+            } else {
+                nextCorrupt = true;
+            }
+        }
+
+        var same = preserveIfSame && _activeLoaded
+            && _corrupt == nextCorrupt
+            && sameSnapshotIdentity(_activeSnapshot, nextSnapshot);
+        if (!same) {
+            _activeSnapshot = nextSnapshot;
+            _entries = nextEntries;
+            _corrupt = nextCorrupt;
+            _codeCache = {};
+        }
+        _activeLoaded = true;
+    }
+
+    (:glance, :background)
+    private function adoptFavorite(raw) {
+        _favoriteId = raw instanceof Lang.String ? raw : null;
+        _favoriteLoaded = true;
+    }
+
+    (:glance, :background)
+    private function sameSnapshotIdentity(
+            left as Null or Lang.Dictionary,
+            right as Null or Lang.Dictionary) {
+        if (left == null || right == null) {
+            return left == null && right == null;
+        }
+        return totpValuesEqual(left["r"], right["r"])
+            && totpValuesEqual(left["x"], right["x"]);
+    }
+
+    (:glance, :background)
+    private function validSnapshot(raw) {
+        if (!(raw instanceof Lang.Dictionary)
+                || !(raw["e"] instanceof Lang.Array)
+                || !(raw["r"] instanceof Number || raw["r"] instanceof Long)
+                || !(raw["x"] instanceof String)) {
+            return false;
+        }
+        var storedEntries = raw["e"] as Lang.Array;
+        for (var index = 0; index < storedEntries.size(); index++) {
+            if (!validEntry(storedEntries[index])) { return false; }
+        }
+        return true;
     }
 
     (:glance, :background)

@@ -4,7 +4,7 @@ import Toybox.Lang;
 (:glance, :background)
 class TotpCore {
     (:glance)
-    public function generate(entry as Lang.Dictionary<String, Object>, unixSeconds as Lang.Number) {
+    public function generate(entry as Lang.Dictionary<String, Object>, unixSeconds as Lang.Number) as Lang.String {
         var secret = toBytes(entry["s"]) as ByteArray;
         var period = entry["p"] as Number;
         var counter = (unixSeconds / period).toLong();
