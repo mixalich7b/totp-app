@@ -159,6 +159,7 @@ class MainActivity : Activity() {
     private fun Throwable.userMessage() = message ?: javaClass.simpleName
 
     override fun onDestroy() {
+        screen.close()
         entryCollection.clear()
         importController.close()
         syncController.close()

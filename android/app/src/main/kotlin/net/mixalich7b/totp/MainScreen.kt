@@ -59,6 +59,7 @@ internal class MainScreen(
     private val swipeTouchSlop = ViewConfiguration.get(activity).scaledTouchSlop
 
     private val adapter = EntryAdapter()
+    private val codeCache = TotpCodeCache()
     private val codeTicker = object : Runnable {
         override fun run() {
             if (!codeTickerRunning) return
@@ -104,10 +105,15 @@ internal class MainScreen(
 
     fun refreshEntries() {
         closeSwipeActions(animated = false)
+        codeCache.retain(entries)
         adapter.notifyDataSetChanged()
         if (::entriesList.isInitialized) {
             entriesList.post { updateVisibleCodes() }
         }
+    }
+
+    fun close() {
+        stopCodeTicker()
     }
 
     fun setMutationControlsEnabled(enabled: Boolean) {
@@ -259,6 +265,7 @@ internal class MainScreen(
         if (::entriesList.isInitialized) {
             entriesList.removeCallbacks(codeTicker)
         }
+        codeCache.clear()
     }
 
     private fun scheduleNextCodeTick() {
@@ -278,7 +285,7 @@ internal class MainScreen(
     }
 
     private fun copyCurrentTotp(entry: TotpEntry) {
-        val code = Totp.generate(entry)
+        val code = codeCache.codeFor(entry, System.currentTimeMillis() / 1000L)
         val clipboard = ContextCompat.getSystemService(activity, ClipboardManager::class.java)
         clipboard?.setPrimaryClip(
             ClipData.newPlainText(
@@ -495,7 +502,7 @@ internal class MainScreen(
         fun updateTotp(nowMillis: Long = System.currentTimeMillis()) {
             val currentEntry = entry ?: return
             val nowSeconds = nowMillis / 1000L
-            codeView.text = Totp.generate(currentEntry, nowSeconds)
+            codeView.text = codeCache.codeFor(currentEntry, nowSeconds)
             val periodSeconds = currentEntry.periodSeconds
             val remainingSeconds = periodSeconds - (nowSeconds % periodSeconds).toInt()
             val progress = remainingSeconds.toFloat() / periodSeconds.toFloat()
