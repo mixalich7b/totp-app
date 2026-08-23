@@ -10,7 +10,6 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
-import android.security.keystore.StrongBoxUnavailableException
 import android.security.keystore.UserNotAuthenticatedException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -308,10 +307,10 @@ private class EntryCrypto(
             val kind = StorageFailureKind.KEY_MISSING
             throw StorageUnavailableException(kind.userMessage(), kind = kind)
         }
-        return generateKey(preferStrongBox = true)
+        return generateKey()
     }
 
-    private fun generateKey(preferStrongBox: Boolean): SecretKey = try {
+    private fun generateKey(): SecretKey {
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         val builder = KeyGenParameterSpec.Builder(
             KEY_ALIAS,
@@ -323,11 +322,8 @@ private class EntryCrypto(
             .setRandomizedEncryptionRequired(true)
             .setUserAuthenticationRequired(false)
         if (Build.VERSION.SDK_INT >= 35) builder.setUnlockedDeviceRequired(true)
-        if (preferStrongBox) builder.setIsStrongBoxBacked(true)
         generator.init(builder.build())
-        generator.generateKey()
-    } catch (error: StrongBoxUnavailableException) {
-        generateKey(preferStrongBox = false)
+        return generator.generateKey()
     }
 
     private fun aad(id: String, revision: Long, schema: Int): ByteArray =

@@ -1,7 +1,11 @@
 package net.mixalich7b.totp
 
 import android.content.ContentValues
+import android.content.pm.PackageManager
 import android.database.sqlite.SQLiteDatabase
+import android.os.Build
+import android.security.keystore.KeyInfo
+import android.security.keystore.KeyProperties
 import android.text.InputType
 import android.view.View
 import android.widget.EditText
@@ -9,12 +13,15 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import java.security.KeyStore
 import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
 
 class SecureEntryRepositoryInstrumentedTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
@@ -57,6 +64,23 @@ class SecureEntryRepositoryInstrumentedTest {
                 assertFalse(cursor.moveToNext())
             }
         }
+    }
+
+    @Test
+    fun testGeneratedKeyDoesNotUseStrongBox() {
+        assumeTrue(Build.VERSION.SDK_INT >= 31)
+        assumeTrue(context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE))
+        SecureEntryRepository(context).use { repository ->
+            repository.add(listOf(entry("key-policy", "Key policy", "", byteArrayOf(1))))
+        }
+
+        val key = KeyStore.getInstance("AndroidKeyStore")
+            .apply { load(null) }
+            .getKey(KEY_ALIAS, null) as SecretKey
+        val keyInfo = SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
+            .getKeySpec(key, KeyInfo::class.java) as KeyInfo
+
+        assertNotEquals(KeyProperties.SECURITY_LEVEL_STRONGBOX, keyInfo.securityLevel)
     }
 
     @Test

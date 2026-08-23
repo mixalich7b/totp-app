@@ -96,8 +96,9 @@ Compose, Room, KSP/kapt, DI или другой framework без необход�
   `Cipher.init(ENCRYPT_MODE, key)`. Caller-provided IV при шифровании запрещён.
 - Keystore key неэкспортируемый, randomized encryption включён,
   `setUserAuthenticationRequired(false)`.
-- StrongBox используется с корректным fallback. `setUnlockedDeviceRequired(true)`
-  применяется только на API 35+.
+- StrongBox не запрашивается. Используется обычный Android Keystore (TEE при
+  поддержке устройства). `setUnlockedDeviceRequired(true)` применяется только на
+  API 35+.
 - Если БД непуста, а key отсутствует/невалиден, не создавать новый key молча.
   Нужен явный reset flow. Перед `resetLocalStorage()` закрыть repository.
 - Reset Android storage удаляет только локальную БД и Keystore key, не данные часов.
