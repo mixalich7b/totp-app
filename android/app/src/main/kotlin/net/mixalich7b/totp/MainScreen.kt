@@ -56,10 +56,24 @@ internal class MainScreen(
     private val rowActionWidthPx = dimenPx(R.dimen.totp_row_action_width)
     private val rowActionIconSizePx = dimenPx(R.dimen.totp_row_action_icon_size)
     private val rowActionIconStrokePx = dimenPx(R.dimen.totp_row_action_icon_stroke)
+    private val confirmationHorizontalPaddingPx =
+        dimenPx(R.dimen.copy_confirmation_horizontal_padding)
+    private val confirmationVerticalPaddingPx =
+        dimenPx(R.dimen.copy_confirmation_vertical_padding)
+    private val confirmationBottomMarginPx = dimenPx(R.dimen.copy_confirmation_bottom_margin)
+    private val confirmationCornerRadiusPx = dimen(R.dimen.copy_confirmation_corner_radius)
+    private val confirmationElevationPx = dimen(R.dimen.copy_confirmation_elevation)
+    private val confirmationTextSizePx = dimen(R.dimen.copy_confirmation_text_size)
     private val swipeTouchSlop = ViewConfiguration.get(activity).scaledTouchSlop
 
     private val adapter = EntryAdapter()
     private val codeCache = TotpCodeCache()
+    private val confirmationAppearance = copyConfirmationAppearance()
+    private val hideCopyConfirmation = Runnable {
+        if (::copyConfirmationView.isInitialized) {
+            copyConfirmationView.visibility = View.GONE
+        }
+    }
     private val codeTicker = object : Runnable {
         override fun run() {
             if (!codeTickerRunning) return
@@ -77,6 +91,7 @@ internal class MainScreen(
     private lateinit var qrButton: Button
     private lateinit var clearWatchButton: Button
     private lateinit var entriesList: ListView
+    private lateinit var copyConfirmationView: TextView
 
     val contentView: View = buildContent()
 
@@ -114,6 +129,10 @@ internal class MainScreen(
 
     fun close() {
         stopCodeTicker()
+        if (::copyConfirmationView.isInitialized) {
+            copyConfirmationView.removeCallbacks(hideCopyConfirmation)
+            copyConfirmationView.visibility = View.GONE
+        }
     }
 
     fun setMutationControlsEnabled(enabled: Boolean) {
@@ -144,17 +163,6 @@ internal class MainScreen(
                 stopCodeTicker()
             }
         })
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(
-                edgePaddingPx + systemBars.left,
-                edgePaddingPx + systemBars.top,
-                edgePaddingPx + systemBars.right,
-                bottomPaddingPx + systemBars.bottom,
-            )
-            insets
-        }
-
         val titleRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -242,8 +250,65 @@ internal class MainScreen(
                 topMargin = buttonGapPx
             },
         )
-        ViewCompat.requestApplyInsets(root)
-        return root
+        copyConfirmationView = TextView(activity).apply {
+            setText(R.string.totp_code_copied)
+            setTextColor(confirmationAppearance.textArgb)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, confirmationTextSizePx)
+            setPadding(
+                confirmationHorizontalPaddingPx,
+                confirmationVerticalPaddingPx,
+                confirmationHorizontalPaddingPx,
+                confirmationVerticalPaddingPx,
+            )
+            background = GradientDrawable().apply {
+                setColor(confirmationAppearance.backgroundArgb)
+                cornerRadius = confirmationCornerRadiusPx
+            }
+            elevation = confirmationElevationPx
+            gravity = Gravity.CENTER
+            maxLines = 2
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            visibility = View.GONE
+        }
+        val host = FrameLayout(activity).apply {
+            addView(
+                root,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            addView(
+                copyConfirmationView,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                    leftMargin = edgePaddingPx
+                    rightMargin = edgePaddingPx
+                    bottomMargin = confirmationBottomMarginPx
+                },
+            )
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(host) { _, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            root.setPadding(
+                edgePaddingPx + systemBars.left,
+                edgePaddingPx + systemBars.top,
+                edgePaddingPx + systemBars.right,
+                bottomPaddingPx + systemBars.bottom,
+            )
+            (copyConfirmationView.layoutParams as FrameLayout.LayoutParams).also { params ->
+                params.leftMargin = edgePaddingPx + systemBars.left
+                params.rightMargin = edgePaddingPx + systemBars.right
+                params.bottomMargin = confirmationBottomMarginPx + systemBars.bottom
+                copyConfirmationView.layoutParams = params
+            }
+            insets
+        }
+        ViewCompat.requestApplyInsets(host)
+        return host
     }
 
     private fun weighted() =
@@ -293,11 +358,10 @@ internal class MainScreen(
                 code,
             ),
         )
-        android.widget.Toast.makeText(
-            activity,
-            R.string.totp_code_copied,
-            android.widget.Toast.LENGTH_SHORT,
-        ).show()
+        copyConfirmationView.removeCallbacks(hideCopyConfirmation)
+        copyConfirmationView.visibility = View.VISIBLE
+        copyConfirmationView.bringToFront()
+        copyConfirmationView.postDelayed(hideCopyConfirmation, COPY_CONFIRMATION_DURATION_MS)
     }
 
     private fun openSwipeActions(row: SwipeRow) {
@@ -652,5 +716,6 @@ internal class MainScreen(
         const val TICKER_INTERVAL_MS = 1_000L
         const val TOTP_WARNING_SECONDS = 5
         const val TOTP_CODE_LETTER_SPACING = 0.08f
+        const val COPY_CONFIRMATION_DURATION_MS = 2_000L
     }
 }
