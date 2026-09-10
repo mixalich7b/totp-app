@@ -366,10 +366,14 @@ internal class MainScreen(
 
     private fun openSwipeActions(row: SwipeRow) {
         if (openRow !== row) {
-            openRow?.animateContentTo(0f)
+            openRow?.let {
+                it.setSwipePressed(false)
+                it.animateContentTo(0f)
+            }
         }
         openEntryId = row.entryId
         openRow = row
+        row.setSwipePressed(true)
         row.animateContentTo(-row.actionsWidthPx.toFloat())
     }
 
@@ -377,6 +381,7 @@ internal class MainScreen(
         val row = openRow
         openEntryId = null
         openRow = null
+        row?.setSwipePressed(false)
         if (animated) {
             row?.animateContentTo(0f)
         } else {
@@ -429,7 +434,7 @@ internal class MainScreen(
             setBackgroundColor(ContextCompat.getColor(activity, R.color.row_timer_progress))
         }
         private val content = FrameLayout(activity).apply {
-            setBackgroundColor(ContextCompat.getColor(activity, R.color.app_surface))
+            setBackgroundResource(R.drawable.row_background)
             minimumHeight = rowMinHeightPx
             addView(
                 LinearLayout(activity).apply {
@@ -557,8 +562,10 @@ internal class MainScreen(
             content.animate().cancel()
             if (openEntryId == entry.id) {
                 openRow = this
+                setSwipePressed(true)
                 setContentTranslation(-actionsWidthPx.toFloat())
             } else {
+                setSwipePressed(false)
                 setContentTranslation(0f)
             }
         }
@@ -593,6 +600,10 @@ internal class MainScreen(
         fun setContentTranslation(translation: Float) {
             content.animate().cancel()
             content.translationX = translation
+        }
+
+        fun setSwipePressed(pressed: Boolean) {
+            content.isPressed = pressed
         }
 
         private fun onContentTouch(view: View, event: MotionEvent): Boolean {
@@ -646,7 +657,7 @@ internal class MainScreen(
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
-                    view.isPressed = false
+                    view.isPressed = openEntryId == entryId
                     view.parent.requestDisallowInterceptTouchEvent(false)
                     if (openEntryId == entryId) {
                         animateContentTo(-actionsWidthPx.toFloat())
